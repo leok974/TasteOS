@@ -1,0 +1,30 @@
+{
+  "name": "@tasteos/config",
+  "version": "0.1.0",
+  "description": "Shared tooling configurations for TasteOS",
+  "main": "src/index.js",
+  "exports": {
+    "./eslint": "./src/eslint.js",
+    "./prettier": "./src/prettier.js",
+    "./typescript": "./src/typescript.json"
+  },
+  "files": [
+    "src/**/*"
+  ],
+  "scripts": {
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-react": "^7.33.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^3.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.0"
+  }
+}

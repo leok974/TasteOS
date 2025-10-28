@@ -1,0 +1,35 @@
+{
+  "name": "tasteos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TasteOS - Agentic Recipe Engine Monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "dev:web": "turbo run dev --filter=@tasteos/web",
+    "dev:app": "turbo run dev --filter=@tasteos/app",
+    "dev:api": "turbo run dev --filter=@tasteos/api",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test --filter=./packages/* --filter=./apps/web --filter=./apps/app",
+    "test:api": "turbo run test --filter=@tasteos/api",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "clean": "turbo run clean",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "security:scan": "gitleaks detect --source ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "prettier": "^3.0.0",
+    "turbo": "^2.5.8",
+    "typescript": "^5.2.0"
+  },
+  "packageManager": "pnpm@8.10.0"
+}

@@ -1,0 +1,7 @@
+
+> @tasteos/api@0.1.0 typecheck D:\TasteOS\apps\api
+> python -m mypy tasteos_api/
+
+C:\Python313\python.exe: No module named mypy
+ ELIFECYCLE  Command failed with exit code 1.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?

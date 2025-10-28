@@ -1,0 +1,15 @@
+{
+  "name": "@tasteos/mcp-servers",
+  "version": "1.0.0",
+  "description": "MCP servers for TasteOS development workflow",
+  "type": "module",
+  "scripts": {
+    "shell": "node shell-server.mjs",
+    "fs-logs": "node fs-logs-server.mjs",
+    "mcp:shell:probe": "node shell-server.mjs --probe",
+    "mcp:logs:probe": "node fs-logs-server.mjs --probe"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}

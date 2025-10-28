@@ -1,0 +1,4 @@
+
+> @tasteos/app@0.1.0 typecheck D:\TasteOS\apps\app
+> tsc --noEmit
+

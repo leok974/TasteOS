@@ -1,0 +1,27 @@
+{
+  "name": "@tasteos/design",
+  "version": "0.1.0",
+  "description": "TasteOS design system with tokens and Tailwind preset",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens": "./src/tokens.css",
+    "./tailwind": "./src/tailwind-preset.ts",
+    "./fonts": "./src/fonts.css"
+  },
+  "files": [
+    "src/**/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.2.0"
+  },
+  "peerDependencies": {
+    "tailwindcss": "^3.3.0"
+  }
+}

@@ -1,0 +1,4 @@
+
+> @tasteos/design@0.1.0 typecheck D:\TasteOS\packages\design
+> tsc --noEmit
+

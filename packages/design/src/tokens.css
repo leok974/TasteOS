@@ -1,0 +1,91 @@
+/* TasteOS Design Tokens */
+
+:root {
+  /* Colors - Light Theme */
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 24 100% 54%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 24 100% 54%;
+  --radius: 0.5rem;
+
+  /* TasteOS Brand Colors */
+  --brand-orange: 24 100% 54%;
+  --brand-orange-light: 24 100% 64%;
+  --brand-orange-dark: 24 100% 44%;
+  --brand-cream: 47 100% 97%;
+  --brand-sage: 120 13% 70%;
+  --brand-charcoal: 240 6% 25%;
+
+  /* Recipe Status Colors */
+  --recipe-new: 142 76% 36%;
+  --recipe-cooking: 45 93% 47%;
+  --recipe-done: 24 100% 54%;
+  --recipe-favorite: 315 100% 50%;
+
+  /* Semantic Colors */
+  --success: 142 76% 36%;
+  --warning: 45 93% 47%;
+  --error: 0 84.2% 60.2%;
+  --info: 217 91% 60%;
+}
+
+.dark {
+  /* Colors - Dark Theme */
+  --background: 240 10% 3.9%;
+  --foreground: 210 40% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 24 100% 54%;
+  --primary-foreground: 240 10% 3.9%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 24 100% 54%;
+
+  /* TasteOS Brand Colors - Dark Theme */
+  --brand-orange: 24 100% 54%;
+  --brand-orange-light: 24 100% 64%;
+  --brand-orange-dark: 24 100% 44%;
+  --brand-cream: 240 9% 15%;
+  --brand-sage: 120 7% 45%;
+  --brand-charcoal: 210 40% 98%;
+
+  /* Recipe Status Colors - Dark Theme */
+  --recipe-new: 142 70% 45%;
+  --recipe-cooking: 45 93% 57%;
+  --recipe-done: 24 100% 54%;
+  --recipe-favorite: 315 100% 60%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}

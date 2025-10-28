@@ -1,0 +1,27 @@
+[detect]
+source = "."
+verbose = false
+
+[rules]
+description = "Detect common secrets and sensitive information"
+
+[[rules.allowlist]]
+description = "Ignore test files and example configurations"
+files = [
+  ".env.example",
+  "test/**",
+  "tests/**",
+  "**/*.test.*",
+  "**/*.spec.*"
+]
+
+[[rules.allowlist]]
+description = "Ignore placeholder values"
+regexes = [
+  "changeme",
+  "xxx",
+  "test_",
+  "sk_test_",
+  "pk_test_",
+  "whsec_test_"
+]

@@ -72,7 +72,7 @@ async def test_household_nutrition_summary_for_today(
     # 5. Verify dairy violation for second_user
     violations = second_user_data["violations"]
     assert len(violations) > 0
-    
+
     # Should detect dairy in "Rasta Pasta"
     dairy_violation = next((v for v in violations if "dairy" in v["reason"].lower()), None)
     assert dairy_violation is not None
@@ -81,7 +81,7 @@ async def test_household_nutrition_summary_for_today(
     # 6. Verify substitution suggestions
     assert "suggestions" in second_user_data
     assert len(second_user_data["suggestions"]) > 0
-    
+
     # Should suggest coconut milk substitution
     suggestion = second_user_data["suggestions"][0]
     assert "coconut milk" in suggestion.lower() or "substitution" in suggestion.lower()

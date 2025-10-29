@@ -48,4 +48,5 @@ from tasteos_api.models.household import Household, HouseholdMembership  # noqa:
 from tasteos_api.models.recipe_memory import RecipeMemory  # noqa: E402, F401
 from tasteos_api.models.user_nutrition_profile import UserNutritionProfile  # noqa: E402, F401
 from tasteos_api.models.recipe_nutrition_info import RecipeNutritionInfo  # noqa: E402, F401
+from tasteos_api.models.household_invite import HouseholdInvite  # noqa: E402, F401
 

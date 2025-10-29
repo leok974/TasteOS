@@ -18,6 +18,7 @@ from tasteos_api.routers import (
     auth,
     billing,
     feedback,
+    households,
     imports,
     memory,
     nutrition,
@@ -86,6 +87,7 @@ app.include_router(pantry.router, prefix="/api/v1", tags=["pantry"])
 app.include_router(planner.router, prefix="/api/v1", tags=["planner"])
 app.include_router(shopping.router, prefix="/api/v1", tags=["shopping"])
 app.include_router(memory.router, prefix="/api/v1", tags=["memory"])
+app.include_router(households.router, prefix="/api/v1/households", tags=["households"])
 
 
 if __name__ == "__main__":

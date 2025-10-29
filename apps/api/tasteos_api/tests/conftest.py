@@ -95,26 +95,21 @@ async def test_household(db_session: AsyncSession, test_user: User) -> Household
     """
     from sqlmodel import select
 
-    # Check if household already exists
-    result = await db_session.exec(
-        select(Household).where(Household.name == "Test Household")
+    # Always create a fresh household for this test_user
+    # Don't reuse across tests to avoid membership confusion
+    household = Household(name="Test Household")
+    db_session.add(household)
+    await db_session.flush()
+
+    # Create membership for test_user as owner
+    membership = HouseholdMembership(
+        household_id=household.id,
+        user_id=test_user.id,
+        role="owner"
     )
-    household = result.first()
-
-    if household is None:
-        household = Household(name="Test Household")
-        db_session.add(household)
-        await db_session.flush()
-
-        # Create membership
-        membership = HouseholdMembership(
-            household_id=household.id,
-            user_id=test_user.id,
-            role="owner"
-        )
-        db_session.add(membership)
-        await db_session.commit()
-        await db_session.refresh(household)
+    db_session.add(membership)
+    await db_session.commit()
+    await db_session.refresh(household)
 
     return household
 
@@ -151,6 +146,41 @@ async def async_client(db_session: AsyncSession, test_user: User, test_household
     # Imports inline to avoid circular import at module import time
     from tasteos_api.core.dependencies import get_current_user as real_user_dep
     app.dependency_overrides[real_user_dep] = override_get_current_user(test_user)
+
+    # Override household dep (Phase 4)
+    from tasteos_api.core.dependencies import get_current_household as real_household_dep
+    app.dependency_overrides[real_household_dep] = override_get_current_household(test_household)
+
+    # Use ASGITransport for httpx AsyncClient with follow_redirects
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        follow_redirects=True
+    ) as client:
+        yield client
+
+    # Clean up overrides after test
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def async_client_as_second_user(
+    db_session: AsyncSession,
+    second_user: User,
+    test_household: Household
+):
+    """
+    Async HTTP client that authenticates as second_user.
+    
+    Useful for testing multi-user household scenarios where you need
+    to make requests as a different user than test_user.
+    """
+    # Override DB dep
+    app.dependency_overrides[get_db_session] = override_get_db_session(db_session)
+
+    # Override auth dep to return second_user
+    from tasteos_api.core.dependencies import get_current_user as real_user_dep
+    app.dependency_overrides[real_user_dep] = override_get_current_user(second_user)
 
     # Override household dep (Phase 4)
     from tasteos_api.core.dependencies import get_current_household as real_household_dep
@@ -251,6 +281,18 @@ async def second_user(db_session: AsyncSession) -> User:
     """
     Create a second user in the system so we can simulate multiple household members.
     """
+    from sqlmodel import select
+    from tasteos_api.models.user import User
+    
+    # Check if user already exists (for test isolation)
+    result = await db_session.exec(
+        select(User).where(User.email == "second_user+tasteos@example.com")
+    )
+    existing = result.first()
+    
+    if existing:
+        return existing
+    
     u = User(
         email="second_user+tasteos@example.com",
         name="Second User",
@@ -301,7 +343,7 @@ async def nutrition_profile_factory(db_session: AsyncSession):
     ):
         from tasteos_api.models.user_nutrition_profile import UserNutritionProfile
         from sqlmodel import select
-        
+
         # Try existing profile (unique per user)
         q = select(UserNutritionProfile).where(UserNutritionProfile.user_id == user.id)
         res = await db_session.exec(q)

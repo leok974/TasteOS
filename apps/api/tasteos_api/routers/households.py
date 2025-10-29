@@ -34,19 +34,19 @@ async def create_household_invite(
 ) -> HouseholdInviteToken:
     """
     Create an invitation to join the current household.
-    
+
     Only household owners can create invitations.
     Returns a secure token that can be redeemed by the invitee.
-    
+
     Args:
         invite_data: Email and role for the invitee
         current_user: Authenticated user (must be owner)
         current_household: Current household context
         session: Database session
-    
+
     Returns:
         Token and household_id for the invitation
-    
+
     Raises:
         HTTPException: If user is not an owner
     """
@@ -57,20 +57,20 @@ async def create_household_invite(
     )
     membership_result = await session.exec(membership_query)
     membership = membership_result.first()
-    
+
     if not membership or membership.role != "owner":
         raise HTTPException(
             status_code=403,
             detail="Only household owners can create invitations"
         )
-    
+
     # Validate role
     if invite_data.role not in ("owner", "member"):
         raise HTTPException(
             status_code=400,
             detail="Role must be 'owner' or 'member'"
         )
-    
+
     # Create the invite
     invite = HouseholdInvite(
         household_id=current_household.id,
@@ -79,11 +79,11 @@ async def create_household_invite(
         token=HouseholdInvite.generate_token(),
         revoked=False,
     )
-    
+
     session.add(invite)
     await session.commit()
     await session.refresh(invite)
-    
+
     return HouseholdInviteToken(
         token=invite.token,
         household_id=invite.household_id,
@@ -98,48 +98,48 @@ async def join_household_via_invite(
 ) -> dict:
     """
     Join a household using an invitation token.
-    
+
     Redeems an invitation token and creates a household membership.
-    
+
     Args:
         token_data: Dictionary containing the invitation token
         current_user: Authenticated user joining the household
         session: Database session
-    
+
     Returns:
         Status information about the join operation
-    
+
     Raises:
         HTTPException: If token is invalid, already used, or revoked
     """
     token = token_data.get("token")
     if not token:
         raise HTTPException(status_code=400, detail="Token is required")
-    
+
     # Look up the invite
     invite_query = select(HouseholdInvite).where(
         HouseholdInvite.token == token
     )
     invite_result = await session.exec(invite_query)
     invite = invite_result.first()
-    
+
     if not invite:
         raise HTTPException(status_code=404, detail="Invalid invitation token")
-    
+
     # Check if already accepted
     if invite.accepted_at is not None:
         raise HTTPException(
             status_code=410,
             detail="This invitation has already been used"
         )
-    
+
     # Check if revoked
     if invite.revoked:
         raise HTTPException(
             status_code=403,
             detail="This invitation has been revoked"
         )
-    
+
     # Check if user is already a member
     existing_membership_query = select(HouseholdMembership).where(
         HouseholdMembership.household_id == invite.household_id,
@@ -147,29 +147,29 @@ async def join_household_via_invite(
     )
     existing_membership_result = await session.exec(existing_membership_query)
     existing_membership = existing_membership_result.first()
-    
+
     if existing_membership:
         raise HTTPException(
             status_code=400,
             detail="You are already a member of this household"
         )
-    
+
     # Create the membership
     membership = HouseholdMembership(
         household_id=invite.household_id,
         user_id=current_user.id,
         role=invite.role,
     )
-    
+
     session.add(membership)
-    
+
     # Mark invite as accepted
     invite.accepted_at = datetime.utcnow()
     session.add(invite)
-    
+
     await session.commit()
     await session.refresh(membership)
-    
+
     return {
         "household_id": str(membership.household_id),
         "role": membership.role,
@@ -184,13 +184,13 @@ async def get_my_households(
 ) -> List[dict]:
     """
     Get all households the current user belongs to.
-    
+
     Returns a list of households with the user's role in each.
-    
+
     Args:
         current_user: Authenticated user
         session: Database session
-    
+
     Returns:
         List of households with id, name, and role
     """
@@ -200,7 +200,7 @@ async def get_my_households(
     )
     memberships_result = await session.exec(memberships_query)
     memberships = memberships_result.all()
-    
+
     # Fetch household details for each membership
     households = []
     for membership in memberships:
@@ -209,12 +209,12 @@ async def get_my_households(
         )
         household_result = await session.exec(household_query)
         household = household_result.first()
-        
+
         if household:
             households.append({
                 "household_id": str(household.id),
                 "name": household.name,
                 "role": membership.role,
             })
-    
+
     return households

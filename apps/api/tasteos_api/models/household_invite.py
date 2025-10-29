@@ -28,7 +28,7 @@ class HouseholdInviteBase(SQLModel):
 class HouseholdInvite(HouseholdInviteBase, BaseModel, table=True):
     """
     Household invite table model.
-    
+
     Represents an invitation to join a household. Owner creates invite with token,
     invitee redeems token to join household.
     """

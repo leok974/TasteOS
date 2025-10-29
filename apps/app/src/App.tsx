@@ -11,7 +11,9 @@ import { PantryPage } from './routes/pantry'
 import { PlannerPage } from './routes/planner'
 import { ShoppingPage } from './routes/shopping'
 import DashboardPage from './routes/dashboard'
-import { CreditCard, BookOpen, FileUp, Package, CalendarDays, ShoppingCart, LayoutDashboard } from 'lucide-react'
+import InviteOwnerPage from './routes/invite'
+import JoinHouseholdPage from './routes/join'
+import { CreditCard, BookOpen, FileUp, Package, CalendarDays, ShoppingCart, LayoutDashboard, UserPlus, Users } from 'lucide-react'
 
 function App() {
   return (
@@ -29,6 +31,18 @@ function App() {
                   <Button variant="ghost" size="sm">
                     <LayoutDashboard className="w-4 h-4 mr-2" />
                     Dashboard
+                  </Button>
+                </Link>
+                <Link to="/invite">
+                  <Button variant="ghost" size="sm">
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Invite
+                  </Button>
+                </Link>
+                <Link to="/join">
+                  <Button variant="ghost" size="sm">
+                    <Users className="w-4 h-4 mr-2" />
+                    Join
                   </Button>
                 </Link>
                 <Link to="/recipes">
@@ -95,6 +109,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invite"
+            element={
+              <ProtectedRoute>
+                <InviteOwnerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/join"
+            element={
+              <ProtectedRoute>
+                <JoinHouseholdPage />
               </ProtectedRoute>
             }
           />

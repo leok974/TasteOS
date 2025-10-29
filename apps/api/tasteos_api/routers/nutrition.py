@@ -296,8 +296,8 @@ async def create_or_update_nutrition_profile(
 @router.get("/nutrition/today")
 async def get_nutrition_today(
     household_id: str | None = None,
-    current_user: Annotated[User, Depends(get_current_user)] | None = None,
-    current_household: Annotated[object, Depends(get_current_household)] | None = None,
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+    current_household: Annotated[object, Depends(get_current_household)] = None,
     session: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ):
     """
@@ -314,7 +314,7 @@ async def get_nutrition_today(
 
     This is the "Health Mode" money endpoint.
     """
-    
+
     # Phase 6.1: Support household_id query parameter for dashboard
     if household_id:
         # Verify current_user is a member of this household
@@ -330,7 +330,7 @@ async def get_nutrition_today(
                 status_code=403,
                 detail="Not a member of this household"
             )
-        
+
         # Load all members of household for Phase 6.1 dashboard format
         memberships_query = select(HouseholdMembership).where(
             HouseholdMembership.household_id == household_id
@@ -339,7 +339,7 @@ async def get_nutrition_today(
         memberships = memberships_result.all()
 
         user_ids = [m.user_id for m in memberships]
-        
+
         users_query = select(User).where(User.id.in_(user_ids))
         users_result = await session.exec(users_query)
         users = users_result.all()
@@ -353,7 +353,7 @@ async def get_nutrition_today(
             )
             profile_result = await session.exec(profile_query)
             profile = profile_result.first()
-            
+
             # Use real data if available, otherwise stub
             if profile:
                 goals = {
@@ -372,7 +372,7 @@ async def get_nutrition_today(
                     "protein_target_g": 180,
                     "allergies": ["shellfish"],
                 }
-            
+
             members_payload.append(
                 {
                     "user_id": str(u.id),
@@ -407,7 +407,7 @@ async def get_nutrition_today(
             "date": date.today().isoformat(),
             "members": members_payload,
         }
-    
+
     # Original Phase 5.1 behavior: use current_household from context
     today = date.today()
 

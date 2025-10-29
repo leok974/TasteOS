@@ -1,5 +1,55 @@
+@import '@tasteos/ui/styles';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import '@tasteos/ui/styles';
+/* === Phase 6 global theme tokens ================================== */
+
+:root {
+  /* Page background (full app chrome) */
+  --bg-app: #0a0a0a;
+
+  /* Card surfaces */
+  --bg-surface-card: #1a1a1a;        /* main cards / panels */
+  --bg-surface-muted: #2a2a2a;       /* sub-panels, callouts, chip backgrounds */
+
+  /* Borders */
+  --border-color: rgba(255, 255, 255, 0.07);
+
+  /* Text */
+  --text-primary: rgb(255,255,255);
+  --text-muted: rgba(255,255,255,0.6);
+}
+
+/* Utility classes our React components expect */
+
+.bg-app {
+  background-color: var(--bg-app);
+}
+
+.bg-surface-card {
+  background-color: var(--bg-surface-card);
+}
+
+.bg-surface-muted {
+  background-color: var(--bg-surface-muted);
+}
+
+.border-border {
+  border-color: var(--border-color);
+}
+
+.text-white {
+  color: var(--text-primary);
+}
+
+.text-muted-foreground {
+  color: var(--text-muted);
+}
+
+/* Optional: give <body> and <main> a dark background and readable text */
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+}

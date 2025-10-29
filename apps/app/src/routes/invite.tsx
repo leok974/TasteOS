@@ -1,6 +1,6 @@
 /**
  * InviteOwnerPage - Phase 6.2
- * 
+ *
  * Allows household owners to generate invite codes for new members.
  */
 
@@ -61,51 +61,54 @@ export default function InviteOwnerPage() {
   }
 
   return (
-    <main className="p-6 max-w-md mx-auto flex flex-col gap-4 bg-background min-h-screen">
-      <h1 className="text-xl font-semibold text-foreground">
-        Invite someone to your household
-      </h1>
-      <p className="text-sm text-muted-foreground">
-        They'll get access to shared meals, allergies, and nutrition tracking.
-      </p>
+    <main className="bg-app min-h-screen p-6 flex flex-col gap-6">
+      <header>
+        <h1 className="text-2xl font-semibold text-white">Invite to Household</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Generate a secure code to share with new members
+        </p>
+      </header>
 
-      {error && (
-        <div className="text-xs text-red-400 font-mono bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-          {error}
-        </div>
-      )}
-
-      <button
-        className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-4 py-3 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        onClick={handleGenerate}
-        disabled={loading}
-      >
-        {loading ? 'Generating...' : 'Generate invite code'}
-      </button>
-
-      {tokenData && (
-        <div className="rounded-xl bg-card border border-border p-4 flex flex-col gap-3">
-          <div className="text-xs text-muted-foreground">Share this code:</div>
-          <code className="text-foreground text-sm font-mono break-all bg-muted p-3 rounded-lg border border-border">
-            {tokenData.token}
-          </code>
-          <div className="text-[11px] text-muted-foreground">
-            Household: {tokenData.household_id}
-          </div>
-
+      <div className="max-w-2xl">
+        <div className="rounded-xl bg-surface-card border border-border p-6 flex flex-col gap-4">
           <button
-            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg px-3 py-2 text-xs font-medium self-start transition-colors"
-            onClick={handleCopy}
+            onClick={handleGenerate}
+            disabled={loading}
+            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
-            Copy code
+            {loading ? 'Generating...' : 'Generate Invite Code'}
           </button>
-        </div>
-      )}
 
-      <p className="text-[11px] text-muted-foreground leading-relaxed">
-        The invite code allows anyone to join your household as a member. 
-        Keep it secure and only share with people you trust.
-      </p>
+          {error && (
+            <div className="rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm p-3">
+              {error}
+            </div>
+          )}
+
+          {tokenData && (
+            <div className="rounded-lg bg-surface-muted border border-border p-4 flex flex-col gap-3">
+              <div className="text-xs text-muted-foreground">
+                Share this code with the person you want to invite:
+              </div>
+
+              <div className="rounded-lg bg-black/40 border border-border p-3 font-mono text-sm text-white break-all">
+                {tokenData.token}
+              </div>
+
+              <button
+                onClick={handleCopy}
+                className="rounded-lg bg-surface-card border border-border text-white px-3 py-2 text-xs font-medium hover:bg-surface-muted transition-colors"
+              >
+                Copy to clipboard
+              </button>
+
+              <div className="text-[11px] text-muted-foreground">
+                Household ID: {tokenData.household_id}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

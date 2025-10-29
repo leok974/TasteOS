@@ -34,10 +34,10 @@ interface StatusChipProps {
 function StatusChip({ label, tone }: StatusChipProps) {
   const toneClasses =
     tone === 'good'
-      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-600/40'
+      ? 'bg-emerald-500/30 text-emerald-300 border-emerald-600/40'
       : tone === 'warn'
-        ? 'bg-yellow-500/20 text-yellow-300 border-yellow-600/40'
-        : 'bg-red-500/20 text-red-300 border-red-600/40';
+        ? 'bg-yellow-500/30 text-yellow-300 border-yellow-600/40'
+        : 'bg-red-500/30 text-red-300 border-red-600/40';
 
   return (
     <span className={`text-[10px] px-2 py-1 rounded-full border ${toneClasses}`}>
@@ -76,10 +76,10 @@ interface MemberCardProps {
 
 function MemberCard({ member }: MemberCardProps) {
   return (
-    <div className="rounded-2xl bg-card p-4 shadow-sm border border-border flex flex-col gap-3">
+    <div className="rounded-2xl bg-surface-card p-4 shadow-sm border border-border flex flex-col gap-3">
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-base font-medium text-card-foreground">{member.name}</div>
+          <div className="text-base font-medium text-white">{member.name}</div>
           <div className="text-xs text-muted-foreground">
             Target: {member.goals.calories_target} kcal / {member.goals.protein_target_g}g protein
           </div>
@@ -100,7 +100,7 @@ function MemberCard({ member }: MemberCardProps) {
         </div>
       </div>
 
-      <div className="text-sm text-card-foreground/90 space-y-1">
+      <div className="text-sm text-white/90 space-y-1">
         <div className="flex justify-between">
           <span>Calories</span>
           <span>
@@ -124,7 +124,7 @@ function MemberCard({ member }: MemberCardProps) {
       </div>
 
       {member.suggestions && member.suggestions.length > 0 && (
-        <div className="rounded-lg bg-muted text-xs text-muted-foreground p-3 leading-relaxed">
+        <div className="rounded-lg bg-surface-muted text-xs text-muted-foreground p-3 leading-relaxed">
           {member.suggestions.join(' ')}
         </div>
       )}
@@ -146,10 +146,10 @@ export default function DashboardPage() {
       const p = new URLSearchParams(window.location.search);
       setActiveHouseholdId(p.get('household') || '');
     };
-    
+
     window.addEventListener('householdChanged', handleHouseholdChange);
     window.addEventListener('popstate', handleHouseholdChange);
-    
+
     return () => {
       window.removeEventListener('householdChanged', handleHouseholdChange);
       window.removeEventListener('popstate', handleHouseholdChange);
@@ -158,7 +158,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!activeHouseholdId) return;
-    
+
     fetchTodayNutrition(activeHouseholdId)
       .then(setData)
       .catch((err) => {
@@ -168,26 +168,26 @@ export default function DashboardPage() {
   }, [activeHouseholdId]);
 
   if (error) {
-    return <main className="p-6 text-red-400 text-sm font-mono">{error}</main>;
+    return <main className="bg-app min-h-screen p-6 text-red-400 text-sm font-mono">{error}</main>;
   }
 
   if (!activeHouseholdId) {
     return (
-      <main className="p-6 text-muted-foreground text-sm">
+      <main className="bg-app min-h-screen p-6 text-muted-foreground text-sm">
         Select a household to view the dashboard…
       </main>
     );
   }
 
   if (!data) {
-    return <main className="p-6 text-muted-foreground text-sm">Loading dashboard…</main>;
+    return <main className="bg-app min-h-screen p-6 text-muted-foreground text-sm">Loading dashboard…</main>;
   }
 
   return (
-    <main className="p-6 flex flex-col gap-6 bg-background min-h-screen">
+    <main className="bg-app min-h-screen p-6 flex flex-col gap-6">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Today's Nutrition</h1>
+          <h1 className="text-xl font-semibold text-white">Today's Nutrition</h1>
           <p className="text-sm text-muted-foreground">
             Household {data.household_id} — {data.date}
           </p>

@@ -7,8 +7,8 @@ webhooks, and billing operations.
 
 import json
 import os
-from datetime import datetime, timedelta
-from typing import Optional, Any
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Any, Dict
 from uuid import UUID
 
 import stripe
@@ -212,7 +212,7 @@ async def get_subscription(
 
     if not subscription:
         # Create free subscription if none exists
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         subscription = Subscription(
             user_id=current_user.id,
             plan="free",

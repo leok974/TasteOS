@@ -5,7 +5,7 @@ This module provides endpoints for generating and managing
 AI-powered recipe variants using LangGraph.
 """
 
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +32,7 @@ async def generate_variant(
     variant_type: str,
     dietary_restriction: Optional[str] = None,
     target_cuisine: Optional[str] = None,
-    substitutions: Optional[dict] = None,
+    substitutions: Optional[Dict[str, Any]] = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ) -> RecipeVariant:

@@ -109,7 +109,7 @@ async def test_household(db_session: AsyncSession, test_user: User) -> Household
         role="owner"
     )
     db_session.add(membership)
-    
+
     # CRITICAL: Commit AND flush to ensure visibility across all queries in this session
     await db_session.commit()
     await db_session.refresh(household)
@@ -128,7 +128,7 @@ def override_get_db_session(db_session: AsyncSession):
 def override_get_current_user(user: User):
     """
     Override get_current_user for tests.
-    
+
     CRITICAL: We return the user object directly, which should be fine
     since User objects are already loaded in the session.
     """
@@ -141,13 +141,13 @@ def override_get_current_household(household: Household):
     """
     Override get_current_household for tests.
     Returns a SimpleNamespace with id and name matching the test household.
-    
+
     CRITICAL: We capture the household ID and name eagerly before they might be expired.
     """
     # Capture these values NOW, before any expire_all() or lazy loading issues
     household_id = household.id
     household_name = household.name
-    
+
     async def _override():
         return SimpleNamespace(id=household_id, name=household_name)
     return _override
@@ -336,7 +336,7 @@ async def attach_second_user_to_household(
         role="member",
     )
     db_session.add(membership)
-    
+
     # CRITICAL: Commit to ensure visibility across all queries in this session
     await db_session.commit()
     await db_session.refresh(membership)

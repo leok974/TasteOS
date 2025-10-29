@@ -58,7 +58,22 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tasteos_api/tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "--cov=tasteos_api --cov-report=term-missing"
+markers = [
+    "phase3: Phase 3 tests (async infrastructure)",
+    "phase4: Phase 4 tests (household scoping)",
+    "phase5: Phase 5 tests (nutrition & invitations)",
+]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportMissingTypeStubs = false
+reportUnusedImport = "warning"

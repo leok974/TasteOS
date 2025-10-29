@@ -22,11 +22,11 @@ BACKUP_PATH = Path(__file__).parent / f"tasteos.db.backup.{datetime.now().strfti
 def main():
     print("🔄 TasteOS Database Recreation Script")
     print("=" * 50)
-    
+
     # Check if database exists
     if DB_PATH.exists():
         print(f"✓ Found existing database: {DB_PATH}")
-        
+
         # Backup
         print(f"📦 Creating backup: {BACKUP_PATH}")
         try:
@@ -36,7 +36,7 @@ def main():
         except Exception as e:
             print(f"❌ Failed to create backup: {e}")
             print("⚠️  Continuing without backup...")
-        
+
         # Delete old database
         print(f"🗑️  Deleting old database...")
         try:
@@ -54,7 +54,7 @@ def main():
             sys.exit(1)
     else:
         print(f"ℹ️  No existing database found at {DB_PATH}")
-    
+
     # Run Alembic upgrade
     print(f"\n🔨 Running Alembic migrations...")
     try:
@@ -71,7 +71,7 @@ def main():
         print(e.stdout)
         print(e.stderr)
         sys.exit(1)
-    
+
     # Verify database was created
     if DB_PATH.exists():
         print(f"\n✅ SUCCESS: Database recreated with Alembic migrations")

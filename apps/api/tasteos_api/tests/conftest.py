@@ -240,3 +240,190 @@ async def grocery_seed(db_session: AsyncSession, test_user: User, test_household
     await db_session.commit()
     await db_session.refresh(g)
     return g
+
+
+# ------------------------------------------------------------------
+# 6. Phase 5.1 fixtures (nutrition profiles & multi-user)
+# ------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def second_user(db_session: AsyncSession) -> User:
+    """
+    Create a second user in the system so we can simulate multiple household members.
+    """
+    u = User(
+        email="second_user+tasteos@example.com",
+        name="Second User",
+        hashed_password="hashed_password_placeholder",  # Required field
+    )
+    db_session.add(u)
+    await db_session.commit()
+    await db_session.refresh(u)
+    return u
+
+
+@pytest_asyncio.fixture
+async def attach_second_user_to_household(
+    db_session: AsyncSession,
+    test_household: Household,
+    second_user: User,
+):
+    """
+    Add second_user to the same household as test_user with role='member'.
+    """
+    membership = HouseholdMembership(
+        household_id=test_household.id,
+        user_id=second_user.id,
+        role="member",
+    )
+    db_session.add(membership)
+    await db_session.commit()
+    await db_session.refresh(membership)
+    return membership
+
+
+@pytest_asyncio.fixture
+async def nutrition_profile_factory(db_session: AsyncSession):
+    """
+    Factory fixture to create or update a UserNutritionProfile.
+    Usage in tests:
+        await nutrition_profile_factory(user=test_user, calories_daily=2200, ...)
+    """
+
+    async def _create_profile(
+        user: User,
+        calories_daily: int = None,
+        protein_daily_g: int = None,
+        carbs_daily_g: int = None,
+        fat_daily_g: int = None,
+        restrictions: dict = None,
+        cultural_notes: str = None,
+    ):
+        from tasteos_api.models.user_nutrition_profile import UserNutritionProfile
+        from sqlmodel import select
+        
+        # Try existing profile (unique per user)
+        q = select(UserNutritionProfile).where(UserNutritionProfile.user_id == user.id)
+        res = await db_session.exec(q)
+        profile = res.first()
+
+        if profile is None:
+            profile = UserNutritionProfile(user_id=user.id)
+
+        profile.calories_daily = calories_daily
+        profile.protein_daily_g = protein_daily_g
+        profile.carbs_daily_g = carbs_daily_g
+        profile.fat_daily_g = fat_daily_g
+        profile.restrictions = restrictions or {}
+        profile.cultural_notes = cultural_notes or ""
+
+        db_session.add(profile)
+        await db_session.commit()
+        await db_session.refresh(profile)
+
+        return profile
+
+    return _create_profile
+
+
+@pytest_asyncio.fixture
+async def recipe_with_nutrition_factory(db_session: AsyncSession, test_household: Household, test_user: User):
+    """
+    Factory to create a RecipeMemory + RecipeNutritionInfo pair representing a culturally-scoped dish.
+    Returns SimpleNamespace(memory=..., nutrition=...)
+    """
+    from tasteos_api.models.recipe_memory import RecipeMemory
+    from tasteos_api.models.recipe_nutrition_info import RecipeNutritionInfo
+    from types import SimpleNamespace
+
+    async def _create_recipe(
+        dish_name: str,
+        calories: int = None,
+        protein_g: float = None,
+        carbs_g: float = None,
+        fat_g: float = None,
+        micronotes: dict = None,
+        origin_notes: str = "Family version",
+    ):
+        memory = RecipeMemory(
+            household_id=test_household.id,
+            dish_name=dish_name,
+            origin_notes=origin_notes,
+            substitutions={"note": "coconut milk instead of cream"},
+            spice_prefs={"Mom": "mild", "Leo": "medium-high"},
+            created_by_user=test_user.id,
+        )
+        db_session.add(memory)
+        await db_session.flush()
+
+        nutrition = RecipeNutritionInfo(
+            recipe_memory_id=memory.id,
+            calories=calories,
+            protein_g=protein_g,
+            carbs_g=carbs_g,
+            fat_g=fat_g,
+            micronotes=micronotes or {},
+        )
+        db_session.add(nutrition)
+
+        await db_session.commit()
+        await db_session.refresh(memory)
+        await db_session.refresh(nutrition)
+
+        return SimpleNamespace(memory=memory, nutrition=nutrition)
+
+    return _create_recipe
+
+
+@pytest_asyncio.fixture
+async def todays_household_plan(
+    db_session: AsyncSession,
+    test_household: Household,
+    test_user: User,
+    recipe_with_nutrition_factory,
+):
+    """
+    Create a MealPlan for today for this household.
+    We'll attach dishes to breakfast/lunch/dinner in a way that we expect /nutrition/today to inspect.
+    """
+
+    # Create two known dishes with nutrition info
+    r1 = await recipe_with_nutrition_factory(
+        dish_name="Rasta Pasta (Salmon Cajun)",
+        calories=650,
+        protein_g=32.0,
+        carbs_g=48.0,
+        fat_g=28.0,
+        micronotes={"dairy": True},
+        origin_notes="Sunday routine sauce: coconut milk + heavy cream",
+    )
+
+    r2 = await recipe_with_nutrition_factory(
+        dish_name="Grilled Chicken Bowl",
+        calories=500,
+        protein_g=40.0,
+        carbs_g=30.0,
+        fat_g=18.0,
+        micronotes={"dairy": False},
+        origin_notes="High protein go-to",
+    )
+
+    # MealPlan breakfast/lunch/dinner/snacks are JSON arrays of dish names
+    plan = MealPlan(
+        household_id=test_household.id,
+        user_id=test_user.id,
+        date=date.today(),
+        breakfast=[r2.memory.dish_name],  # Grilled Chicken Bowl
+        lunch=[r2.memory.dish_name],      # Grilled Chicken Bowl
+        dinner=[r1.memory.dish_name],     # Rasta Pasta (has dairy)
+        snacks=[],
+        notes_per_user={},
+        total_calories=1650,
+        notes="High protein plan with dairy warning",
+    )
+
+    db_session.add(plan)
+    await db_session.commit()
+    await db_session.refresh(plan)
+
+    return plan

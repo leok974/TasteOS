@@ -27,7 +27,7 @@ interface UseVariantsReturn extends UseVariantsState {
  *
  * Handles loading state, errors, and caching of generated variants
  */
-export function useVariants(recipeId: string): UseVariantsReturn {
+export function useVariants(_recipeId: string): UseVariantsReturn {
   const [state, setState] = useState<UseVariantsState>({
     variants: [],
     loading: false,

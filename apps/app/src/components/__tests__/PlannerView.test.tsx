@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { PlannerView } from '../components/PlannerView';
-import type { MealPlan } from '../lib/api';
+import { PlannerView } from '../PlannerView';
+import type { MealPlan } from '../../lib/api';
 
 describe('PlannerView', () => {
   it('renders empty state when no plans', () => {
@@ -18,10 +18,10 @@ describe('PlannerView', () => {
       {
         id: '1',
         user_id: 'user1',
-        date: new Date().toISOString().split('T')[0],
-        breakfast: [{ recipe_id: null, title: 'Oatmeal' }],
-        lunch: [{ recipe_id: null, title: 'Salad' }],
-        dinner: [{ recipe_id: null, title: 'Pasta' }],
+        date: new Date().toISOString().split('T')[0] as string,
+        breakfast: [{ recipe_id: '1', title: 'Oatmeal' }],
+        lunch: [{ recipe_id: '2', title: 'Salad' }],
+        dinner: [{ recipe_id: '3', title: 'Pasta' }],
         snacks: [],
         total_calories: 1800,
         total_protein_g: 70,
@@ -46,8 +46,8 @@ describe('PlannerView', () => {
       {
         id: '2',
         user_id: 'user1',
-        date: new Date().toISOString().split('T')[0],
-        breakfast: [{ recipe_id: null, title: 'Eggs' }],
+        date: new Date().toISOString().split('T')[0] as string,
+        breakfast: [{ recipe_id: '1', title: 'Eggs' }],
         lunch: [],
         dinner: [],
         snacks: [],

@@ -43,9 +43,11 @@ export function PlanGuard({ plan, featureName, upgradeUrl, children }: PlanGuard
             </Button>
           </a>
         ) : (
-          <Button className="mt-4" onClick={() => window.location.href = '/settings/billing'}>
-            View Plans
-          </Button>
+          <a href="/settings/billing">
+            <Button className="mt-4">
+              View Plans
+            </Button>
+          </a>
         )}
       </div>
     </div>

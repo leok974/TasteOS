@@ -30,9 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest
+      - name: Run pytest (phase3 + phase4 + phase5)
         run: |
-          pytest tasteos_api/tests -q -m "phase3 or phase4" --tb=short
+          pytest tasteos_api/tests -q -m "phase3 or phase4 or phase5" --tb=short
         env:
           # Test environment variables
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"

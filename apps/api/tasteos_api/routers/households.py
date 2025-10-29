@@ -25,6 +25,41 @@ from tasteos_api.models.user import User
 router = APIRouter(prefix="", tags=["households"])
 
 
+async def _require_owner(
+    db: AsyncSession,
+    user_id: int,
+    household_id: int,
+) -> HouseholdMembership:
+    """
+    Helper to verify that a user is an owner of a household.
+    
+    Args:
+        db: Database session
+        user_id: User ID to check
+        household_id: Household ID to check ownership for
+        
+    Returns:
+        The HouseholdMembership record
+        
+    Raises:
+        HTTPException: If user is not an owner (403)
+    """
+    q = select(HouseholdMembership).where(
+        HouseholdMembership.user_id == user_id,
+        HouseholdMembership.household_id == household_id,
+    )
+    res = await db.exec(q)
+    membership = res.first()
+
+    if not membership or membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="Only owners can perform this action.",
+        )
+
+    return membership
+
+
 @router.post("/invite", response_model=HouseholdInviteToken, status_code=201)
 async def create_household_invite(
     invite_data: HouseholdInviteCreate,
@@ -51,18 +86,7 @@ async def create_household_invite(
         HTTPException: If user is not an owner
     """
     # Verify current_user is an owner of current_household
-    membership_query = select(HouseholdMembership).where(
-        HouseholdMembership.household_id == current_household.id,
-        HouseholdMembership.user_id == current_user.id,
-    )
-    membership_result = await session.exec(membership_query)
-    membership = membership_result.first()
-
-    if not membership or membership.role != "owner":
-        raise HTTPException(
-            status_code=403,
-            detail="Only household owners can create invitations"
-        )
+    await _require_owner(session, current_user.id, current_household.id)
 
     # Validate role
     if invite_data.role not in ("owner", "member"):

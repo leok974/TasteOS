@@ -1,4 +1,3 @@
-import * as React from 'react'
 import type { Recipe } from '@tasteos/types'
 
 interface RecipeCardProps {
@@ -10,9 +9,6 @@ interface RecipeCardProps {
 
 export function RecipeCard({
   recipe,
-  onSelect,
-  onFavorite,
-  variant = 'default'
 }: RecipeCardProps) {
   return (
     <div className="bg-card border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">

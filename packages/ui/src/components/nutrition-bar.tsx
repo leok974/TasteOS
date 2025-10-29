@@ -1,10 +1,8 @@
 /**
- * Nutrition Bar Component
+ * NutritionBar component
  *
- * Displays macronutrient information in a horizontal bar format
+ * Visual bars showing % daily value for protein, carbs, fat
  */
-
-import * as React from 'react';
 
 export interface NutritionBarProps {
   calories: number;

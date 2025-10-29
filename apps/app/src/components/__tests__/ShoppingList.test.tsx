@@ -4,11 +4,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ShoppingList } from '../components/ShoppingList';
-import type { GroceryItem } from '../lib/api';
+import { ShoppingList } from '../ShoppingList';
+import type { GroceryItem } from '../../lib/api';
 
 // Mock the API module
-vi.mock('../lib/api', () => ({
+vi.mock('../../lib/api', () => ({
   togglePurchased: vi.fn(() => Promise.resolve()),
 }));
 

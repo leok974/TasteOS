@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { PantryTable } from '../components/PantryTable';
-import type { PantryItem } from '../lib/api';
+import { PantryTable } from '../PantryTable';
+import type { PantryItem } from '../../lib/api';
 
 describe('PantryTable', () => {
   it('renders empty state when no items', () => {

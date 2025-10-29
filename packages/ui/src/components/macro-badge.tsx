@@ -1,10 +1,8 @@
 /**
- * Macro Badge Component
+ * MacroBadge component
  *
- * Small pill badge showing a single macro value
+ * Small badge showing protein/carbs/fat in grams
  */
-
-import * as React from 'react';
 
 export interface MacroBadgeProps {
   label: string;

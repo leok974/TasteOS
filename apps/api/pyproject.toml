@@ -63,9 +63,9 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "--cov=tasteos_api --cov-report=term-missing"
 markers = [
-    "phase3: Phase 3 tests (async infrastructure)",
-    "phase4: Phase 4 tests (household scoping)",
-    "phase5: Phase 5 tests (nutrition & invitations)",
+    "phase3: Stable, CI-blocking tests for Pantry / Planner / Shopping async API (Phase 3 baseline)",
+    "phase4: Household sharing, cultural memory, and access control tests (Family Mode)",
+    "phase5: Nutrition intelligence (Health Mode) and household onboarding / invite flow (Growth Mode)",
 ]
 
 [tool.pyright]

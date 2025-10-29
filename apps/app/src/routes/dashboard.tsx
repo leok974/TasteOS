@@ -1,11 +1,12 @@
 /**
- * Dashboard Page - Phase 6.1
- * 
+ * Dashboard Page - Phase 6.1/6.3
+ *
  * Household nutrition dashboard showing per-member nutrition status,
  * goals, violations, and suggestions.
  */
 
 import { useEffect, useState } from 'react';
+import HouseholdSwitcher from '../components/HouseholdSwitcher';
 
 // TODO: centralize in lib/api later
 async function fetchTodayNutrition(householdId: string) {
@@ -134,12 +135,30 @@ function MemberCard({ member }: MemberCardProps) {
 export default function DashboardPage() {
   const [data, setData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeHouseholdId, setActiveHouseholdId] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('household') || '';
+  });
 
-  // Phase 6.1: temp hardcode active household
-  // TODO: Phase 6.3 will get this from URL params or context
-  const activeHouseholdId = 'abc123';
+  // Watch the URL for changes to ?household= and update state
+  useEffect(() => {
+    const handleHouseholdChange = () => {
+      const p = new URLSearchParams(window.location.search);
+      setActiveHouseholdId(p.get('household') || '');
+    };
+    
+    window.addEventListener('householdChanged', handleHouseholdChange);
+    window.addEventListener('popstate', handleHouseholdChange);
+    
+    return () => {
+      window.removeEventListener('householdChanged', handleHouseholdChange);
+      window.removeEventListener('popstate', handleHouseholdChange);
+    };
+  }, []);
 
   useEffect(() => {
+    if (!activeHouseholdId) return;
+    
     fetchTodayNutrition(activeHouseholdId)
       .then(setData)
       .catch((err) => {
@@ -150,6 +169,14 @@ export default function DashboardPage() {
 
   if (error) {
     return <main className="p-6 text-red-400 text-sm font-mono">{error}</main>;
+  }
+
+  if (!activeHouseholdId) {
+    return (
+      <main className="p-6 text-muted-foreground text-sm">
+        Select a household to view the dashboard…
+      </main>
+    );
   }
 
   if (!data) {
@@ -166,13 +193,8 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* HouseholdSwitcher placeholder (Phase 6.3) */}
-        <div className="rounded-lg bg-card border border-border text-foreground text-sm px-3 py-2 flex items-center gap-2">
-          <span>My Apartment</span>
-          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded-full border border-border">
-            owner
-          </span>
-        </div>
+        {/* Real HouseholdSwitcher (Phase 6.3) */}
+        <HouseholdSwitcher />
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

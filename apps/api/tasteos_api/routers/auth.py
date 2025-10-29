@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -22,6 +23,12 @@ from tasteos_api.core.dependencies import get_current_user
 from tasteos_api.models.user import User, UserCreate, UserRead
 
 router = APIRouter()
+
+
+class LoginRequest(BaseModel):
+    """Login request schema."""
+    email: EmailStr
+    password: str
 
 
 @router.post("/register", response_model=UserRead)
@@ -63,34 +70,25 @@ async def register(
 @router.post("/login")
 async def login(
     response: Response,
-    payload: dict,
+    credentials: LoginRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> dict[str, str | UserRead]:
     """
     Authenticate user and return JWT token + set session cookie.
-
+    
     Accepts JSON body:
     {
       "email": "user@example.com",
       "password": "secret123"
     }
     """
-    email = payload.get("email")
-    password = payload.get("password")
-
-    if not email or not password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email and password required"
-        )
-
     # Get user from database
     result = await session.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == credentials.email)
     )
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(password, user.hashed_password):
+    if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -100,9 +98,7 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
-        )
-
-    # Create access token
+        )    # Create access token
     access_token = create_access_token(
         data={"sub": str(user.id), "email": user.email}
     )

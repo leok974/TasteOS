@@ -13,7 +13,7 @@ from sqlmodel import select
 async def test_register():
     """Test user registration with detailed error output."""
     print("Testing user registration...")
-    
+
     try:
         user_data = UserCreate(
             email="test@example.com",
@@ -23,14 +23,14 @@ async def test_register():
             plan="free",
             subscription_status="active"
         )
-        
+
         print(f"UserCreate data: {user_data}")
         print(f"Fields: {user_data.model_dump()}")
-        
+
         # Create user object
         hashed_password = get_password_hash(user_data.password)
         print(f"Password hashed successfully")
-        
+
         db_user = User(
             email=user_data.email,
             name=user_data.name,
@@ -39,10 +39,10 @@ async def test_register():
             is_active=user_data.is_active,
             subscription_status=user_data.subscription_status,
         )
-        
+
         print(f"User object created: {db_user}")
         print(f"User fields: {db_user.model_dump()}")
-        
+
         # Try to save to database
         async for session in get_db_session():
             # Check if user exists
@@ -50,26 +50,26 @@ async def test_register():
                 select(User).where(User.email == user_data.email)
             )
             existing = result.scalar_one_or_none()
-            
+
             if existing:
                 print(f"✗ User already exists: {existing.email}")
                 return
-            
+
             print("Adding user to session...")
             session.add(db_user)
-            
+
             print("Committing...")
             await session.commit()
-            
+
             print("Refreshing...")
             await session.refresh(db_user)
-            
+
             print(f"✓ User created successfully!")
             print(f"  ID: {db_user.id}")
             print(f"  Email: {db_user.email}")
             print(f"  Name: {db_user.name}")
             break
-            
+
     except Exception as e:
         print(f"\n✗ Error occurred:")
         print(f"  Type: {type(e).__name__}")

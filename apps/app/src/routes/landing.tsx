@@ -7,7 +7,7 @@
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black to-surface-card text-white p-8 flex flex-col gap-16">
+    <main className="min-h-screen bg-gradient-to-b from-black to-surface-card text-white p-6 md:p-8 flex flex-col gap-16">
       {/* HERO */}
       <section className="max-w-3xl flex flex-col gap-6">
         <h1 className="text-3xl font-semibold leading-tight text-white">TasteOS</h1>

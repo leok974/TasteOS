@@ -168,23 +168,23 @@ export default function DashboardPage() {
   }, [activeHouseholdId]);
 
   if (error) {
-    return <main className="bg-app min-h-screen p-6 text-red-400 text-sm font-mono">{error}</main>;
+    return <main className="bg-app min-h-screen p-6 md:p-8 text-red-400 text-sm font-mono">{error}</main>;
   }
 
   if (!activeHouseholdId) {
     return (
-      <main className="bg-app min-h-screen p-6 text-muted-foreground text-sm">
+      <main className="bg-app min-h-screen p-6 md:p-8 text-muted-foreground text-sm">
         Select a household to view the dashboard…
       </main>
     );
   }
 
   if (!data) {
-    return <main className="bg-app min-h-screen p-6 text-muted-foreground text-sm">Loading dashboard…</main>;
+    return <main className="bg-app min-h-screen p-6 md:p-8 text-muted-foreground text-sm">Loading dashboard…</main>;
   }
 
   return (
-    <main className="bg-app min-h-screen p-6 flex flex-col gap-6">
+    <main className="bg-app min-h-screen p-6 md:p-8 flex flex-col gap-6">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-white">Today's Nutrition</h1>

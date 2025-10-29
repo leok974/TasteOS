@@ -1,73 +1,114 @@
 /**
- * Login page for Phase 1 development
+ * Login Page - Phase 6 Auth
  *
- * Simple token paste interface for testing.
- * Production will use OAuth/proper authentication.
+ * Email/password login with cookie-based sessions.
  */
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { setToken } from '../lib/auth';
-import { Button } from '@tasteos/ui';
 
 export function Login() {
-  const [token, setTokenInput] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = () => {
-    if (!token.trim()) {
-      alert('Please paste a JWT token');
-      return;
-    }
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
 
-    setToken(token.trim());
-    navigate('/recipes');
-  };
+    try {
+      const base = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+
+      const res = await fetch(`${base}/api/v1/auth/login`, {
+        method: 'POST',
+        credentials: 'include', // IMPORTANT: enables cookies
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      if (!res.ok) {
+        setLoading(false);
+        if (res.status === 401) {
+          setError('Invalid email or password.');
+        } else {
+          setError('Login failed. Please try again.');
+        }
+        return;
+      }
+
+      // Success -> redirect to dashboard
+      navigate('/dashboard');
+    } catch (err: any) {
+      console.error(err);
+      setLoading(false);
+      setError('Network error. Please try again.');
+    }
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
-        <div>
-          <h2 className="text-3xl font-bold text-center text-gray-900">
-            TasteOS Dashboard
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Phase 1 Dev Login
-          </p>
+    <main className="bg-app min-h-screen flex items-center justify-center p-6 md:p-8">
+      <div className="rounded-2xl bg-surface-card border border-border shadow-sm p-6 w-full max-w-sm flex flex-col gap-4">
+        <div className="text-center flex flex-col gap-1">
+          <h1 className="text-white text-lg font-semibold">TasteOS Login</h1>
+          <p className="text-[12px] text-muted-foreground">Sign in to continue</p>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="token" className="block text-sm font-medium text-gray-700">
-              JWT Token
-            </label>
-            <textarea
-              id="token"
-              rows={6}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm font-mono"
-              placeholder="Paste your JWT token here..."
-              value={token}
-              onChange={(e) => setTokenInput(e.target.value)}
+        <form className="flex flex-col gap-4" onSubmit={handleLogin}>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-muted-foreground">Email</span>
+            <input
+              className="rounded-lg bg-surface-muted border border-border text-white p-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
             />
-          </div>
+          </label>
 
-          <Button
-            onClick={handleLogin}
-            className="w-full"
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-muted-foreground">Password</span>
+            <input
+              className="rounded-lg bg-surface-muted border border-border text-white p-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          {error && (
+            <div className="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              {error}
+            </div>
+          )}
+
+          <button
+            className="w-full rounded-lg bg-emerald-600 text-white text-sm font-medium px-4 py-2 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            type="submit"
+            disabled={loading}
           >
-            Login with Token
-          </Button>
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
 
-          <div className="text-xs text-gray-500 space-y-1">
-            <p>To get a token:</p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>Run: <code className="bg-gray-100 px-1">.\apps\api\scripts\login.ps1</code></li>
-              <li>Copy the access_token value</li>
-              <li>Paste it above</li>
-            </ol>
-          </div>
+        <div className="text-[11px] text-muted-foreground text-center leading-relaxed">
+          Don't have an account?
+          <br />
+          Contact your administrator to get registered.
         </div>
       </div>
-    </div>
+    </main>
   );
 }

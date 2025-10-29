@@ -6,10 +6,10 @@ and should be imported by routers that need authentication.
 """
 
 from types import SimpleNamespace
-from typing import Annotated
+from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -20,16 +20,21 @@ from tasteos_api.models.user import User
 from tasteos_api.models.household import Household, HouseholdMembership
 
 # OAuth2 scheme for token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login/token", auto_error=False)
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    token: Annotated[Optional[str], Depends(oauth2_scheme)] = None,
+    tasteos_session: Annotated[Optional[str], Cookie()] = None,
 ) -> User:
     """
-    Get current authenticated user from JWT token.
+    Get current authenticated user from JWT token (header or cookie).
 
+    Supports both:
+    - Authorization: Bearer <token> header
+    - tasteos_session cookie
+    
     This dependency can be used in any router that requires authentication.
     """
     credentials_exception = HTTPException(
@@ -38,7 +43,13 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    payload = decode_access_token(token)
+    # Try cookie first, then Authorization header
+    auth_token = tasteos_session or token
+    
+    if auth_token is None:
+        raise credentials_exception
+
+    payload = decode_access_token(auth_token)
     if payload is None:
         raise credentials_exception
 

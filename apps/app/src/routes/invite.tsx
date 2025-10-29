@@ -61,7 +61,7 @@ export default function InviteOwnerPage() {
   }
 
   return (
-    <main className="bg-app min-h-screen p-6 flex flex-col gap-6">
+    <main className="bg-app min-h-screen p-6 md:p-8 flex flex-col gap-6">
       <header>
         <h1 className="text-2xl font-semibold text-white">Invite to Household</h1>
         <p className="text-sm text-muted-foreground mt-1">

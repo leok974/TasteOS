@@ -57,7 +57,7 @@ export default function JoinHouseholdPage() {
   }
 
   return (
-    <main className="bg-app min-h-screen p-6 max-w-md mx-auto flex flex-col gap-4">
+    <main className="bg-app min-h-screen p-6 md:p-8 max-w-md mx-auto flex flex-col gap-4">
       <h1 className="text-xl font-semibold text-white">Join a household</h1>
 
       <label className="flex flex-col gap-2 text-sm">

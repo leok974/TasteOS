@@ -48,6 +48,10 @@ async def init_db() -> None:
             pantry_item,
             meal_plan,
             grocery_item,
+            household,
+            household_invite,
+            user_nutrition_profile,
+            recipe_nutrition_info,
         )
 
         # Create all tables

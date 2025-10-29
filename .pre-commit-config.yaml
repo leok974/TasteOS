@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3.11
+        additional_dependencies: []
+        files: ^apps/api/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.0
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^apps/api/
+
+# Usage:
+#   pip install pre-commit
+#   pre-commit install
+#
+# After that, black+ruff will auto-run on staged Python files under apps/api/
+# before each commit.

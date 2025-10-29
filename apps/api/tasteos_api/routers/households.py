@@ -32,15 +32,15 @@ async def _require_owner(
 ) -> HouseholdMembership:
     """
     Helper to verify that a user is an owner of a household.
-    
+
     Args:
         db: Database session
         user_id: User ID to check
         household_id: Household ID to check ownership for
-        
+
     Returns:
         The HouseholdMembership record
-        
+
     Raises:
         HTTPException: If user is not an owner (403)
     """

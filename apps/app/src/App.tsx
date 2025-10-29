@@ -10,7 +10,8 @@ import ImportRecipe from './routes/import'
 import { PantryPage } from './routes/pantry'
 import { PlannerPage } from './routes/planner'
 import { ShoppingPage } from './routes/shopping'
-import { CreditCard, BookOpen, FileUp, Package, CalendarDays, ShoppingCart } from 'lucide-react'
+import DashboardPage from './routes/dashboard'
+import { CreditCard, BookOpen, FileUp, Package, CalendarDays, ShoppingCart, LayoutDashboard } from 'lucide-react'
 
 function App() {
   return (
@@ -24,6 +25,12 @@ function App() {
 
             {isAuthenticated() && (
               <nav className="flex items-center gap-4">
+                <Link to="/dashboard">
+                  <Button variant="ghost" size="sm">
+                    <LayoutDashboard className="w-4 h-4 mr-2" />
+                    Dashboard
+                  </Button>
+                </Link>
                 <Link to="/recipes">
                   <Button variant="ghost" size="sm">
                     <BookOpen className="w-4 h-4 mr-2" />
@@ -80,6 +87,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <DashboardHome />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <DashboardPage />
               </ProtectedRoute>
             }
           />

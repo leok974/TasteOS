@@ -295,11 +295,16 @@ async def create_or_update_nutrition_profile(
 
 @router.get("/nutrition/today")
 async def get_nutrition_today(
-    current_household: Annotated[object, Depends(get_current_household)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    household_id: str | None = None,
+    current_user: Annotated[User, Depends(get_current_user)] | None = None,
+    current_household: Annotated[object, Depends(get_current_household)] | None = None,
+    session: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ):
     """
     Evaluate today's meal plan against household members' nutrition goals.
+
+    Phase 6.1 UPDATE: Can accept household_id as query param for dashboard view.
+    Falls back to current_household from context if household_id not provided.
 
     Returns:
     - Summary of alignment
@@ -309,6 +314,101 @@ async def get_nutrition_today(
 
     This is the "Health Mode" money endpoint.
     """
+    
+    # Phase 6.1: Support household_id query parameter for dashboard
+    if household_id:
+        # Verify current_user is a member of this household
+        membership_query = select(HouseholdMembership).where(
+            HouseholdMembership.household_id == household_id,
+            HouseholdMembership.user_id == current_user.id,
+        )
+        membership_result = await session.exec(membership_query)
+        membership = membership_result.first()
+
+        if membership is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Not a member of this household"
+            )
+        
+        # Load all members of household for Phase 6.1 dashboard format
+        memberships_query = select(HouseholdMembership).where(
+            HouseholdMembership.household_id == household_id
+        )
+        memberships_result = await session.exec(memberships_query)
+        memberships = memberships_result.all()
+
+        user_ids = [m.user_id for m in memberships]
+        
+        users_query = select(User).where(User.id.in_(user_ids))
+        users_result = await session.exec(users_query)
+        users = users_result.all()
+
+        # Phase 6.1: Build stub response per member (real nutrition calc can plug in later)
+        members_payload = []
+        for u in users:
+            # Try to get real profile data if it exists
+            profile_query = select(UserNutritionProfile).where(
+                UserNutritionProfile.user_id == u.id
+            )
+            profile_result = await session.exec(profile_query)
+            profile = profile_result.first()
+            
+            # Use real data if available, otherwise stub
+            if profile:
+                goals = {
+                    "calories_target": profile.calories_daily or 2400,
+                    "protein_target_g": profile.protein_daily_g or 180,
+                    "allergies": [],
+                }
+                if profile.restrictions:
+                    if profile.restrictions.get("shellfish_allergy"):
+                        goals["allergies"].append("shellfish")
+                    if profile.restrictions.get("dairy_free"):
+                        goals["allergies"].append("dairy")
+            else:
+                goals = {
+                    "calories_target": 2400,
+                    "protein_target_g": 180,
+                    "allergies": ["shellfish"],
+                }
+            
+            members_payload.append(
+                {
+                    "user_id": str(u.id),
+                    "name": u.name or "Member",
+                    "goals": goals,
+                    "day_intake": {
+                        "calories": 1720,
+                        "protein_g": 102,
+                        "carbs_g": 140,
+                        "fat_g": 60,
+                    },
+                    "status": {
+                        "calories_ok": True,
+                        "protein_ok": False,
+                        "allergy_violations": [
+                            {
+                                "recipe_id": "shrimp_rasta_pasta",
+                                "ingredient": "shrimp",
+                                "severity": "high",
+                            }
+                        ],
+                    },
+                    "suggestions": [
+                        "Add a high-protein snack (Greek yogurt, +20g protein)",
+                        "Avoid shellfish in dinner tonight",
+                    ],
+                }
+            )
+
+        return {
+            "household_id": household_id,
+            "date": date.today().isoformat(),
+            "members": members_payload,
+        }
+    
+    # Original Phase 5.1 behavior: use current_household from context
     today = date.today()
 
     # 1. Get today's meal plan for this household

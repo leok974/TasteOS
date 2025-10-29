@@ -19,7 +19,7 @@ API_BASE = "http://localhost:8000"
 def register_user():
     """Register a test user via the /api/v1/auth/register endpoint."""
     url = f"{API_BASE}/api/v1/auth/register"
-    
+
     payload = {
         "email": "dev@tasteos.local",
         "password": "dev123",
@@ -27,15 +27,15 @@ def register_user():
         "is_active": True,
         "plan": "free"
     }
-    
+
     print("Registering user...")
     print(f"Email: {payload['email']}")
     print(f"Password: {payload['password']}")
     print()
-    
+
     try:
         response = requests.post(url, json=payload)
-        
+
         if response.status_code == 200:
             user = response.json()
             print("✓ User registered successfully!")
@@ -61,7 +61,7 @@ def register_user():
         else:
             print(f"✗ HTTP {response.status_code}: {response.text}")
             return 1
-            
+
     except requests.exceptions.ConnectionError:
         print("✗ Could not connect to API server at http://localhost:8000")
         print("  Make sure the backend is running:")

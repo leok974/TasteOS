@@ -1,0 +1,7 @@
+{
+  "email": "dev@tasteos.local",
+  "password": "dev123",
+  "name": "Dev User",
+  "is_active": true,
+  "plan": "free"
+}

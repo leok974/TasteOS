@@ -34,7 +34,7 @@ async def get_current_user(
     Supports both:
     - Authorization: Bearer <token> header
     - tasteos_session cookie
-    
+
     This dependency can be used in any router that requires authentication.
     """
     credentials_exception = HTTPException(
@@ -45,7 +45,7 @@ async def get_current_user(
 
     # Try cookie first, then Authorization header
     auth_token = tasteos_session or token
-    
+
     if auth_token is None:
         raise credentials_exception
 

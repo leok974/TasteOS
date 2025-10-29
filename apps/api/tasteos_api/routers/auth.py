@@ -50,6 +50,7 @@ async def register(
         hashed_password=hashed_password,
         plan=user_data.plan,
         is_active=user_data.is_active,
+        subscription_status=user_data.subscription_status,
     )
 
     session.add(db_user)
@@ -67,7 +68,7 @@ async def login(
 ) -> dict[str, str | UserRead]:
     """
     Authenticate user and return JWT token + set session cookie.
-    
+
     Accepts JSON body:
     {
       "email": "user@example.com",
@@ -76,13 +77,13 @@ async def login(
     """
     email = payload.get("email")
     password = payload.get("password")
-    
+
     if not email or not password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email and password required"
         )
-    
+
     # Get user from database
     result = await session.execute(
         select(User).where(User.email == email)
@@ -105,7 +106,7 @@ async def login(
     access_token = create_access_token(
         data={"sub": str(user.id), "email": user.email}
     )
-    
+
     # Set cookie for browser-based auth (24 hours)
     response.set_cookie(
         key="tasteos_session",
@@ -156,7 +157,7 @@ async def login_oauth(
     access_token = create_access_token(
         data={"sub": str(user.id), "email": user.email}
     )
-    
+
     # Set cookie for browser-based auth
     response.set_cookie(
         key="tasteos_session",

@@ -28,7 +28,7 @@ export function PantryTable({ items, onItemDeleted }: PantryTableProps) {
       await deletePantryItem(id);
       onItemDeleted();
     } catch (error) {
-      console.error('Failed to delete item:', error);
+      console.error('[TasteOS][PantryTable] failed to delete item:', error);
       alert('Failed to delete item. Please try again.');
     } finally {
       setDeletingId(null);

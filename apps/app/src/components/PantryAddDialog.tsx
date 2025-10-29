@@ -58,7 +58,7 @@ export function PantryAddDialog({ isOpen, onClose, onItemAdded }: PantryAddDialo
       onItemAdded();
       onClose();
     } catch (error) {
-      console.error('Failed to add item:', error);
+      console.error('[TasteOS][PantryAddDialog] failed to add item:', error);
       alert('Failed to add item. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -86,7 +86,7 @@ export function PantryAddDialog({ isOpen, onClose, onItemAdded }: PantryAddDialo
       setShowAiHelper(false);
       setRawText('');
     } catch (error) {
-      console.error('Failed to parse item:', error);
+      console.error('[TasteOS][PantryAddDialog] failed to parse item:', error);
       alert('Failed to parse item. Please try again or enter manually.');
     } finally {
       setIsParsing(false);

@@ -28,7 +28,7 @@ export function PantryPage() {
       const data = await getPantry();
       setItems(data);
     } catch (err: any) {
-      console.error('Failed to load pantry:', err);
+      console.error('[TasteOS][Pantry] failed to load pantry:', err);
       setError(err.message || 'Failed to load pantry items');
     } finally {
       setLoading(false);

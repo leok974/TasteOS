@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { setToken } from '../lib/auth';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -44,10 +45,18 @@ export function Login() {
         return;
       }
 
+      const data = await res.json();
+      console.log('[TasteOS][Login] success:', data);
+
+      // Store the access token
+      if (data.access_token) {
+        setToken(data.access_token);
+      }
+
       // Success -> redirect to dashboard
       navigate('/dashboard');
     } catch (err: any) {
-      console.error(err);
+      console.error('[TasteOS][Login] error:', err);
       setLoading(false);
       setError('Network error. Please try again.');
     }

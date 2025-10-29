@@ -49,7 +49,7 @@ export default function JoinHouseholdPage() {
       setResult(json);
       // Phase 6.3: will redirect to /dashboard?household=<joined>
     } catch (e: any) {
-      console.error(e);
+      console.error('[TasteOS][Join] error:', e);
       setError(String(e.message || e));
     } finally {
       setLoading(false);

@@ -51,7 +51,7 @@ export function VariantPanel({ recipe, variants, onVariantGenerated }: VariantPa
       const data = await getRecipeNutrition(recipe.id);
       setBaseNutrition(data);
     } catch (err) {
-      console.error('Failed to load base nutrition:', err);
+      console.error('[TasteOS][VariantPanel] failed to load base nutrition:', err);
     }
   };
 
@@ -60,7 +60,7 @@ export function VariantPanel({ recipe, variants, onVariantGenerated }: VariantPa
       const data = await getVariantNutrition(variantId);
       setVariantNutrition(prev => ({ ...prev, [variantId]: data }));
     } catch (err) {
-      console.error(`Failed to load nutrition for variant ${variantId}:`, err);
+      console.error(`[TasteOS][VariantPanel] failed to load nutrition for variant ${variantId}:`, err);
     }
   };
 
@@ -69,7 +69,7 @@ export function VariantPanel({ recipe, variants, onVariantGenerated }: VariantPa
       const data = await getBillingPlan();
       setPlan(data);
     } catch (err) {
-      console.error('Failed to load billing plan:', err);
+      console.error('[TasteOS][VariantPanel] failed to load billing plan:', err);
     }
   };
 

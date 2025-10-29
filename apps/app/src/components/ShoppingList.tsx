@@ -23,7 +23,7 @@ export function ShoppingList({ items, onItemToggled }: ShoppingListProps) {
       await togglePurchased(itemId);
       onItemToggled();
     } catch (err) {
-      console.error('Failed to toggle item:', err);
+      console.error('[TasteOS][ShoppingList] failed to toggle item:', err);
     } finally {
       setToggling(null);
     }

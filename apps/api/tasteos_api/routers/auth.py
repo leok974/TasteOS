@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -27,7 +27,7 @@ router = APIRouter()
 
 class LoginRequest(BaseModel):
     """Login request schema."""
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -75,7 +75,7 @@ async def login(
 ) -> dict[str, str | UserRead]:
     """
     Authenticate user and return JWT token + set session cookie.
-    
+
     Accepts JSON body:
     {
       "email": "user@example.com",

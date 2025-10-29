@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { getAuthHeader } from '../lib/auth';
 
 // Tiny helper: read/set ?household=<id> in the URL
 function useActiveHousehold() {
@@ -33,6 +34,9 @@ async function fetchMyHouseholds() {
   const base = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
   const res = await fetch(`${base}/api/v1/households/mine`, {
     credentials: 'include',
+    headers: {
+      ...getAuthHeader(),
+    },
   });
   if (!res.ok) {
     throw new Error(`households/mine failed: ${res.status}`);
@@ -50,16 +54,24 @@ export default function HouseholdSwitcher() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('[TasteOS][HouseholdSwitcher] fetching households...');
+    console.log('[TasteOS][HouseholdSwitcher] initial activeHouseholdId:', activeHouseholdId);
     fetchMyHouseholds()
       .then((arr) => {
+        console.log('[TasteOS][HouseholdSwitcher] got households:', arr);
+        console.log('[TasteOS][HouseholdSwitcher] array length:', arr.length);
         setList(arr);
         // If we didn't already have ?household= set, default to first
+        console.log('[TasteOS][HouseholdSwitcher] activeHouseholdId before check:', activeHouseholdId);
         if (!activeHouseholdId && arr.length > 0) {
+          console.log('[TasteOS][HouseholdSwitcher] auto-selecting first household:', arr[0].household_id);
           selectHousehold(arr[0].household_id);
+        } else {
+          console.log('[TasteOS][HouseholdSwitcher] NOT auto-selecting. activeHouseholdId:', activeHouseholdId, 'arr.length:', arr.length);
         }
       })
       .catch((e: any) => {
-        console.error(e);
+        console.error('[TasteOS][HouseholdSwitcher] error:', e);
         setError(String(e.message || e));
       });
     // We intentionally don't include activeHouseholdId/selectHousehold here,

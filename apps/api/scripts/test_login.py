@@ -21,19 +21,19 @@ try:
     print(f"\nResponse Headers:")
     for key, value in response.headers.items():
         print(f"  {key}: {value}")
-    
+
     print(f"\nResponse Body:")
     try:
         print(json.dumps(response.json(), indent=2))
     except:
         print(response.text)
-    
+
     # Check if cookie was set
     if 'set-cookie' in response.headers:
         print(f"\n✓ Cookie set: {response.headers['set-cookie']}")
     else:
         print(f"\n✗ No cookie set in response")
-        
+
 except Exception as e:
     print(f"✗ Request failed: {e}")
     import traceback

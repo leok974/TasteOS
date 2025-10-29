@@ -42,7 +42,7 @@ export default function InviteOwnerPage() {
       const json = await res.json();
       setTokenData(json);
     } catch (e: any) {
-      console.error(e);
+      console.error('[TasteOS][Invite] error:', e);
       setError(String(e.message || e));
     } finally {
       setLoading(false);

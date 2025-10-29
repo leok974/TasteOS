@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import HouseholdSwitcher from '../components/HouseholdSwitcher';
+import { getAuthHeader } from '../lib/auth';
 
 // TODO: centralize in lib/api later
 async function fetchTodayNutrition(householdId: string) {
@@ -17,6 +18,9 @@ async function fetchTodayNutrition(householdId: string) {
     )}`,
     {
       credentials: 'include',
+      headers: {
+        ...getAuthHeader(),
+      },
     },
   );
 
@@ -162,7 +166,7 @@ export default function DashboardPage() {
     fetchTodayNutrition(activeHouseholdId)
       .then(setData)
       .catch((err) => {
-        console.error(err);
+        console.error('[TasteOS][Dashboard] nutrition fetch failed:', err);
         setError(String(err));
       });
   }, [activeHouseholdId]);
@@ -173,8 +177,11 @@ export default function DashboardPage() {
 
   if (!activeHouseholdId) {
     return (
-      <main className="bg-app min-h-screen p-6 md:p-8 text-muted-foreground text-sm">
-        Select a household to view the dashboard…
+      <main className="bg-app min-h-screen p-6 md:p-8 flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <p className="text-muted-foreground text-sm">Select a household to view the dashboard…</p>
+          <HouseholdSwitcher />
+        </div>
       </main>
     );
   }

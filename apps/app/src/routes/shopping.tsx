@@ -27,7 +27,7 @@ export function ShoppingPage() {
       const data = await getShoppingList();
       setItems(data);
     } catch (err: any) {
-      console.error('Failed to load shopping list:', err);
+      console.error('[TasteOS][Shopping] failed to load shopping list:', err);
       setError(err.message || 'Failed to load shopping list');
     } finally {
       setLoading(false);
@@ -47,7 +47,7 @@ export function ShoppingPage() {
       }
       await loadShoppingList();
     } catch (err: any) {
-      console.error('Failed to generate shopping list:', err);
+      console.error('[TasteOS][Shopping] failed to generate shopping list:', err);
       setError(err.message || 'Failed to generate shopping list');
     } finally {
       setIsGenerating(false);
@@ -68,7 +68,7 @@ export function ShoppingPage() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      console.error('Failed to export shopping list:', err);
+      console.error('[TasteOS][Shopping] failed to export shopping list:', err);
       setError(err.message || 'Failed to export shopping list');
     }
   };

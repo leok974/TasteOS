@@ -33,7 +33,7 @@ export function PlannerPage() {
         setPlans([]);
       }
     } catch (err: any) {
-      console.error('Failed to load today\'s plan:', err);
+      console.error('[TasteOS][Planner] failed to load today\'s plan:', err);
       setError(err.message || 'Failed to load meal plan');
     } finally {
       setLoading(false);
@@ -65,7 +65,7 @@ export function PlannerPage() {
         setError('No plans were generated');
       }
     } catch (err: any) {
-      console.error('Failed to generate meal plan:', err);
+      console.error('[TasteOS][Planner] failed to generate meal plan:', err);
       setError(err.message || 'Failed to generate meal plan');
     } finally {
       setIsGenerating(false);

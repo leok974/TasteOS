@@ -8,7 +8,7 @@ and initialization for the TasteOS API using SQLModel.
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tasteos_api.core.config import get_settings
@@ -38,7 +38,7 @@ async def init_db() -> None:
     """Initialize database tables."""
     async with engine.begin() as conn:
         # Import all models to ensure they're registered
-        from tasteos_api.models import (
+        from tasteos_api.models import (  # noqa: F401
             recipe,
             subscription,
             usage,

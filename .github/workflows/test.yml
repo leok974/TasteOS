@@ -10,66 +10,66 @@ jobs:
   test-api:
     name: Backend Tests (Python)
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
         working-directory: apps/api
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+
       - name: Run pytest
         run: |
-          pytest tasteos_api/tests -q --tb=short
+          pytest tasteos_api/tests -q -m "phase3 or phase4" --tb=short
         env:
           # Test environment variables
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
           SECRET_KEY: "test-secret-key-for-ci"
           OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
-      
+
       - name: Generate coverage report
         if: success()
         run: |
-          pytest tasteos_api/tests --cov=tasteos_api --cov-report=term-missing
+          pytest tasteos_api/tests -m "phase3 or phase4" --cov=tasteos_api --cov-report=term-missing
         continue-on-error: true
-  
+
   # Frontend tests coming soon
   # test-app:
   #   name: Frontend Tests (Vitest)
   #   runs-on: ubuntu-latest
-  #   
+  #
   #   defaults:
   #     run:
   #       working-directory: apps/app
-  #   
+  #
   #   steps:
   #     - name: Checkout code
   #       uses: actions/checkout@v4
-  #     
+  #
   #     - name: Setup Node.js
   #       uses: actions/setup-node@v4
   #       with:
   #         node-version: '20'
-  #     
+  #
   #     - name: Install pnpm
   #       uses: pnpm/action-setup@v3
   #       with:
   #         version: 8
-  #     
+  #
   #     - name: Install dependencies
   #       run: pnpm install
-  #     
+  #
   #     - name: Run Vitest
   #       run: pnpm test

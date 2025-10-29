@@ -15,7 +15,7 @@ from fastapi.responses import Response
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tasteos_api.core.dependencies import get_current_user
+from tasteos_api.core.dependencies import get_current_user, get_current_household
 from tasteos_api.core.database import get_db_session
 from tasteos_api.models.user import User
 from tasteos_api.models.grocery_item import (
@@ -35,6 +35,7 @@ router = APIRouter(prefix="/shopping", tags=["shopping"])
 async def generate_shopping_list(
     plan_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> List[GroceryItemRead]:
     """
@@ -42,6 +43,7 @@ async def generate_shopping_list(
 
     Compares meal plan requirements against pantry inventory
     and creates grocery items for missing ingredients.
+    Phase 4: Scoped by household.
 
     Args:
         plan_id: UUID of the meal plan to generate list from
@@ -50,21 +52,21 @@ async def generate_shopping_list(
         List of created grocery items
     """
     # Get the meal plan
-    plan_result = await session.execute(
+    plan_result = await session.exec(
         select(MealPlan)
         .where(MealPlan.id == plan_id)
-        .where(MealPlan.user_id == current_user.id)
+        .where(MealPlan.household_id == current_household.id)
     )
-    meal_plan = plan_result.scalar_one_or_none()
+    meal_plan = plan_result.first()
 
     if not meal_plan:
         raise HTTPException(status_code=404, detail="Meal plan not found")
 
     # Get pantry items
-    pantry_result = await session.execute(
-        select(PantryItem).where(PantryItem.user_id == current_user.id)
+    pantry_result = await session.exec(
+        select(PantryItem).where(PantryItem.household_id == current_household.id)
     )
-    pantry_items = pantry_result.scalars().all()
+    pantry_items = pantry_result.all()
 
     # Convert to dict format
     meal_plan_data = {
@@ -95,11 +97,13 @@ async def generate_shopping_list(
     for item_data in shopping_list:
         grocery_item = GroceryItem(
             user_id=current_user.id,
+            household_id=current_household.id,
             meal_plan_id=plan_id,
             name=item_data["name"],
             quantity=item_data.get("quantity"),
             unit=item_data.get("unit"),
-            purchased=False
+            purchased=False,
+            assigned_to_user=None
         )
 
         session.add(grocery_item)
@@ -126,19 +130,21 @@ async def generate_shopping_list(
 @router.get("/", response_model=List[GroceryItemRead])
 async def get_shopping_list(
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> List[GroceryItemRead]:
     """
-    Get all grocery items for the current user.
+    Get all grocery items for the current household.
+    Phase 4: Scoped by household.
 
     Returns items grouped by meal_plan_id (in the client).
     """
-    result = await session.execute(
+    result = await session.exec(
         select(GroceryItem)
-        .where(GroceryItem.user_id == current_user.id)
+        .where(GroceryItem.household_id == current_household.id)
         .order_by(GroceryItem.purchased, GroceryItem.created_at.desc())
     )
-    items = result.scalars().all()
+    items = result.all()
 
     return [
         GroceryItemRead(
@@ -160,10 +166,12 @@ async def get_shopping_list(
 async def toggle_purchased(
     item_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> GroceryItemRead:
     """
     Toggle the purchased status of a grocery item.
+    Phase 4: Household-scoped, returns 404 if not in household.
 
     Args:
         item_id: UUID of the grocery item
@@ -171,12 +179,12 @@ async def toggle_purchased(
     Returns:
         Updated grocery item
     """
-    result = await session.execute(
+    result = await session.exec(
         select(GroceryItem)
         .where(GroceryItem.id == item_id)
-        .where(GroceryItem.user_id == current_user.id)
+        .where(GroceryItem.household_id == current_household.id)
     )
-    item = result.scalar_one_or_none()
+    item = result.first()
 
     if not item:
         raise HTTPException(status_code=404, detail="Grocery item not found")
@@ -204,21 +212,23 @@ async def toggle_purchased(
 @router.post("/export")
 async def export_shopping_list(
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
     """
     Export shopping list as CSV.
+    Phase 4: Scoped by household.
 
     Returns:
         CSV file with grocery items
     """
-    result = await session.execute(
+    result = await session.exec(
         select(GroceryItem)
-        .where(GroceryItem.user_id == current_user.id)
+        .where(GroceryItem.household_id == current_household.id)
         .where(GroceryItem.purchased == False)
         .order_by(GroceryItem.name)
     )
-    items = result.scalars().all()
+    items = result.all()
 
     # Generate CSV
     output = io.StringIO()

@@ -5,7 +5,6 @@ This module provides endpoints for user registration, login,
 and JWT token management.
 """
 
-from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +22,8 @@ from tasteos_api.core.dependencies import get_current_user
 from tasteos_api.models.user import User, UserCreate, UserRead
 
 router = APIRouter()
+
+
 @router.post("/register", response_model=UserRead)
 async def register(
     user_data: UserCreate,
@@ -62,7 +63,7 @@ async def register(
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> dict:
+) -> dict[str, str | UserRead]:
     """Authenticate user and return JWT token."""
     # Get user from database
     result = await session.execute(
@@ -98,7 +99,7 @@ async def login(
 @router.post("/refresh")
 async def refresh_token(
     current_user: Annotated[User, Depends(get_current_user)],
-) -> dict:
+) -> dict[str, str]:
     """Refresh JWT token."""
     access_token = create_access_token(
         data={"sub": str(current_user.id), "email": current_user.email}

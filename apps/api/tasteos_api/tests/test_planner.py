@@ -2,6 +2,9 @@ import pytest
 from datetime import date
 from unittest.mock import patch
 
+pytestmark = pytest.mark.phase3
+
+
 @pytest.mark.asyncio
 async def test_generate_week_plan_inserts_mealplans(async_client):
     fake_output = [

@@ -8,7 +8,8 @@ webhooks, and billing operations.
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any
+from uuid import UUID
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
@@ -58,13 +59,13 @@ STRIPE_PRICES = {
 async def get_billing_plan(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, Any]:
     """Get user's current plan and daily variant usage."""
     # Get subscription
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.user_id == current_user.id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     plan = subscription.plan if subscription else "free"
     limit = DAILY_VARIANT_QUOTAS.get(plan, DAILY_VARIANT_QUOTAS["free"])
@@ -86,7 +87,7 @@ async def create_checkout_session(
     interval: str,  # "monthly" or "yearly"
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, str]:
     """
     Create Stripe checkout session for Pro plan subscription.
 
@@ -164,7 +165,7 @@ async def create_checkout_session(
 @router.get("/portal")
 async def get_customer_portal(
     current_user: User = Depends(get_current_user)
-) -> dict:
+) -> dict[str, str]:
     """
     Get Stripe customer portal URL for managing subscription.
 
@@ -204,10 +205,10 @@ async def get_subscription(
     session: AsyncSession = Depends(get_db_session)
 ) -> Subscription:
     """Get current user's subscription status."""
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.user_id == current_user.id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if not subscription:
         # Create free subscription if none exists
@@ -234,14 +235,14 @@ async def create_checkout_session(
     cancel_url: str,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, str]:
     """Create Stripe checkout session for subscription."""
 
     # Get or create Stripe customer
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.user_id == current_user.id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     customer_id = subscription.stripe_customer_id if subscription else None
 
@@ -284,7 +285,7 @@ async def stripe_webhook(
     request: Request,
     stripe_signature: str = Header(None, alias="Stripe-Signature"),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, str]:
     """Handle Stripe webhook events."""
 
     payload = await request.body()
@@ -340,7 +341,7 @@ async def stripe_webhook(
     return {"status": "success"}
 
 
-async def _handle_checkout_completed(checkout_session: dict, session: AsyncSession, event_id):
+async def _handle_checkout_completed(checkout_session: dict, session: AsyncSession, event_id: UUID) -> None:
     """Handle successful checkout completion."""
     user_id = checkout_session.get("metadata", {}).get("user_id")
     if not user_id:
@@ -351,10 +352,10 @@ async def _handle_checkout_completed(checkout_session: dict, session: AsyncSessi
     stripe_subscription = stripe.Subscription.retrieve(subscription_id)
 
     # Update or create subscription in database
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.user_id == user_id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if subscription:
         subscription.plan = "pro"
@@ -378,14 +379,14 @@ async def _handle_checkout_completed(checkout_session: dict, session: AsyncSessi
     await session.commit()
 
 
-async def _handle_subscription_updated(subscription_data: dict, session: AsyncSession, event_id):
+async def _handle_subscription_updated(subscription_data: dict, session: AsyncSession, event_id: UUID) -> None:
     """Handle subscription update events."""
     subscription_id = subscription_data.get("id")
 
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.stripe_subscription_id == subscription_id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if subscription:
         subscription.status = subscription_data.status
@@ -395,14 +396,14 @@ async def _handle_subscription_updated(subscription_data: dict, session: AsyncSe
         await session.commit()
 
 
-async def _handle_subscription_deleted(subscription_data: dict, session: AsyncSession, event_id):
+async def _handle_subscription_deleted(subscription_data: dict, session: AsyncSession, event_id: UUID) -> None:
     """Handle subscription cancellation."""
     subscription_id = subscription_data.get("id")
 
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.stripe_subscription_id == subscription_id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if subscription:
         subscription.status = "canceled"
@@ -410,14 +411,14 @@ async def _handle_subscription_deleted(subscription_data: dict, session: AsyncSe
         await session.commit()
 
 
-async def _handle_payment_failed(invoice: dict, session: AsyncSession, event_id):
+async def _handle_payment_failed(invoice: dict, session: AsyncSession, event_id: UUID) -> None:
     """Handle failed payment."""
     customer_id = invoice.get("customer")
 
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.stripe_customer_id == customer_id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if subscription:
         subscription.status = "past_due"
@@ -428,12 +429,12 @@ async def _handle_payment_failed(invoice: dict, session: AsyncSession, event_id)
 async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, Any]:
     """Cancel user's subscription."""
-    result = await session.execute(
+    result = await session.exec(
         select(Subscription).where(Subscription.user_id == current_user.id)
     )
-    subscription = result.scalar_one_or_none()
+    subscription = result.first()
 
     if not subscription or not subscription.stripe_subscription_id:
         raise HTTPException(status_code=404, detail="No active subscription found")
@@ -466,13 +467,13 @@ async def get_usage(
     # Get current period (YYYY-MM)
     period = datetime.utcnow().strftime("%Y-%m")
 
-    result = await session.execute(
+    result = await session.exec(
         select(Usage).where(
             Usage.user_id == current_user.id,
             Usage.period == period
         )
     )
-    usage = result.scalar_one_or_none()
+    usage = result.first()
 
     if not usage:
         # Create usage record for this period
@@ -494,24 +495,24 @@ async def get_usage(
 async def get_plan_limits(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, Any]:
     """Get plan limits and current usage."""
     # Get subscription
-    sub_result = await session.execute(
+    sub_result = await session.exec(
         select(Subscription).where(Subscription.user_id == current_user.id)
     )
-    subscription = sub_result.scalar_one_or_none()
+    subscription = sub_result.first()
     plan = subscription.plan if subscription else "free"
 
     # Get usage
     period = datetime.utcnow().strftime("%Y-%m")
-    usage_result = await session.execute(
+    usage_result = await session.exec(
         select(Usage).where(
             Usage.user_id == current_user.id,
             Usage.period == period
         )
     )
-    usage = usage_result.scalar_one_or_none()
+    usage = usage_result.first()
 
     limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
@@ -551,10 +552,10 @@ async def check_usage_limit(
         True if within limits, False if exceeded
     """
     # Get subscription
-    sub_result = await session.execute(
+    sub_result = await session.exec(
         select(Subscription).where(Subscription.user_id == user.id)
     )
-    subscription = sub_result.scalar_one_or_none()
+    subscription = sub_result.first()
     plan = subscription.plan if subscription else "free"
 
     limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
@@ -565,13 +566,13 @@ async def check_usage_limit(
 
     # Get current usage
     period = datetime.utcnow().strftime("%Y-%m")
-    usage_result = await session.execute(
+    usage_result = await session.exec(
         select(Usage).where(
             Usage.user_id == user.id,
             Usage.period == period
         )
     )
-    usage = usage_result.scalar_one_or_none()
+    usage = usage_result.first()
 
     if not usage:
         return True  # No usage yet, so within limits
@@ -593,7 +594,7 @@ async def increment_usage(
     feature: str,
     session: AsyncSession,
     amount: int = 1
-):
+) -> None:
     """
     Increment usage counter for a feature.
 
@@ -605,13 +606,13 @@ async def increment_usage(
     """
     period = datetime.utcnow().strftime("%Y-%m")
 
-    result = await session.execute(
+    result = await session.exec(
         select(Usage).where(
             Usage.user_id == user.id,
             Usage.period == period
         )
     )
-    usage = result.scalar_one_or_none()
+    usage = result.first()
 
     if not usage:
         usage = Usage(

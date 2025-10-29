@@ -5,7 +5,7 @@ This module provides endpoints for generating and managing
 AI-powered recipe variants using LangGraph.
 """
 
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -52,10 +52,10 @@ async def generate_variant(
         )
 
     # Fetch the original recipe
-    result = await session.execute(
+    result = await session.exec(
         select(Recipe).where(Recipe.id == recipe_id)
     )
-    recipe = result.scalar_one_or_none()
+    recipe = result.first()
 
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -130,10 +130,10 @@ async def get_variant(
     session: AsyncSession = Depends(get_db_session)
 ) -> RecipeVariant:
     """Get a specific recipe variant."""
-    result = await session.execute(
+    result = await session.exec(
         select(RecipeVariant).where(RecipeVariant.id == variant_id)
     )
-    variant = result.scalar_one_or_none()
+    variant = result.first()
 
     if not variant:
         raise HTTPException(status_code=404, detail="Variant not found")
@@ -151,10 +151,10 @@ async def list_recipe_variants(
     session: AsyncSession = Depends(get_db_session)
 ) -> list[RecipeVariant]:
     """List all variants for a specific recipe."""
-    recipe_result = await session.execute(
+    recipe_result = await session.exec(
         select(Recipe).where(Recipe.id == recipe_id)
     )
-    recipe = recipe_result.scalar_one_or_none()
+    recipe = recipe_result.first()
 
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -162,10 +162,10 @@ async def list_recipe_variants(
     if recipe.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    result = await session.execute(
+    result = await session.exec(
         select(RecipeVariant).where(RecipeVariant.parent_recipe_id == recipe_id)
     )
-    variants = result.scalars().all()
+    variants = result.all()
 
     return list(variants)
 
@@ -177,10 +177,10 @@ async def approve_variant(
     session: AsyncSession = Depends(get_db_session)
 ) -> RecipeVariant:
     """Approve a generated variant."""
-    result = await session.execute(
+    result = await session.exec(
         select(RecipeVariant).where(RecipeVariant.id == variant_id)
     )
-    variant = result.scalar_one_or_none()
+    variant = result.first()
 
     if not variant:
         raise HTTPException(status_code=404, detail="Variant not found")
@@ -201,12 +201,12 @@ async def get_variant_diff(
     variant_id: UUID,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
-) -> dict:
+) -> dict[str, Any]:
     """Get the diff between original recipe and variant."""
-    variant_result = await session.execute(
+    variant_result = await session.exec(
         select(RecipeVariant).where(RecipeVariant.id == variant_id)
     )
-    variant = variant_result.scalar_one_or_none()
+    variant = variant_result.first()
 
     if not variant:
         raise HTTPException(status_code=404, detail="Variant not found")
@@ -214,10 +214,10 @@ async def get_variant_diff(
     if variant.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    recipe_result = await session.execute(
+    recipe_result = await session.exec(
         select(Recipe).where(Recipe.id == variant.parent_recipe_id)
     )
-    recipe = recipe_result.scalar_one_or_none()
+    recipe = recipe_result.first()
 
     if not recipe:
         raise HTTPException(status_code=404, detail="Original recipe not found")

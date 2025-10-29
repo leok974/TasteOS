@@ -25,6 +25,7 @@ class MealPlan(BaseModel, table=True):
     __tablename__ = "meal_plans"
 
     user_id: UUID = Field(foreign_key="users.id", index=True)
+    household_id: UUID = Field(foreign_key="households.id", index=True)
 
     # Date this plan is for
     date: Date = Field(index=True)
@@ -34,6 +35,9 @@ class MealPlan(BaseModel, table=True):
     lunch: str = Field(default="[]", sa_column=Column(JSON))
     dinner: str = Field(default="[]", sa_column=Column(JSON))
     snacks: str = Field(default="[]", sa_column=Column(JSON))
+
+    # Per-user notes for meal plan (Phase 4 - Family Mode)
+    notes_per_user: str = Field(default="{}", sa_column=Column(JSON))
 
     # Aggregate nutrition for the day
     total_calories: Optional[int] = None

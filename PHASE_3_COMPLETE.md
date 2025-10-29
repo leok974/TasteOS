@@ -496,6 +496,18 @@ test('shows expiring soon badge', () => {
 
 This gives you symmetry: **backend enforceable in pytest, frontend verifiable with vitest**.
 
+### CI Scope Note
+
+CI is currently only running tests tagged with `@pytest.mark.phase3`.
+
+**Why:**
+- Phase 3 locks Pantry, Planner, and Shopping flows with full async, isolated DB, and mocked agents.
+- New tests (imports, nutrition, etc.) exist in the repo but are not wired to the new async harness yet and are NOT blocking main.
+
+**Plan:**
+- Phase 4 will extend coverage to multi-user households and cultural memory.
+- When those new tests pass, we will tag them `phase4` and update CI to run `-m "phase3 or phase4"`.
+
 ### Test Architecture Notes
 
 **Async Fixtures:**

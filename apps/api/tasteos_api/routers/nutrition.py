@@ -50,10 +50,10 @@ async def get_recipe_nutrition(
         HTTPException: If recipe not found or not accessible
     """
     # Get the recipe
-    result = await session.execute(
+    result = await session.exec(
         select(Recipe).where(Recipe.id == recipe_id)
     )
-    recipe = result.scalar_one_or_none()
+    recipe = result.first()
 
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -63,12 +63,12 @@ async def get_recipe_nutrition(
         raise HTTPException(status_code=403, detail="Not authorized to access this recipe")
 
     # Check for cached nutrition
-    nutrition_result = await session.execute(
+    nutrition_result = await session.exec(
         select(RecipeNutrition)
         .where(RecipeNutrition.recipe_id == recipe_id)
         .where(RecipeNutrition.variant_id == None)
     )
-    cached_nutrition = nutrition_result.scalar_one_or_none()
+    cached_nutrition = nutrition_result.first()
 
     if cached_nutrition:
         return RecipeNutritionRead(
@@ -137,29 +137,29 @@ async def get_variant_nutrition(
         HTTPException: If variant not found or not accessible
     """
     # Get the variant
-    result = await session.execute(
+    result = await session.exec(
         select(RecipeVariant).where(RecipeVariant.id == variant_id)
     )
-    variant = result.scalar_one_or_none()
+    variant = result.first()
 
     if not variant:
         raise HTTPException(status_code=404, detail="Variant not found")
 
     # Get the base recipe to check ownership
-    recipe_result = await session.execute(
+    recipe_result = await session.exec(
         select(Recipe).where(Recipe.id == variant.recipe_id)
     )
-    recipe = recipe_result.scalar_one_or_none()
+    recipe = recipe_result.first()
 
     if not recipe or recipe.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this variant")
 
     # Check for cached nutrition
-    nutrition_result = await session.execute(
+    nutrition_result = await session.exec(
         select(RecipeNutrition)
         .where(RecipeNutrition.variant_id == variant_id)
     )
-    cached_nutrition = nutrition_result.scalar_one_or_none()
+    cached_nutrition = nutrition_result.first()
 
     if cached_nutrition:
         return RecipeNutritionRead(

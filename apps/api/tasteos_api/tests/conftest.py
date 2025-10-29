@@ -1,18 +1,18 @@
-import asyncio
 import json
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
+from types import SimpleNamespace
 from typing import AsyncGenerator
-from uuid import uuid4
 
-import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlmodel import SQLModel
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from tasteos_api.main import app
 from tasteos_api.core.database import get_db_session
 from tasteos_api.models.user import User
+from tasteos_api.models.household import Household, HouseholdMembership
 from tasteos_api.models.pantry_item import PantryItem
 from tasteos_api.models.meal_plan import MealPlan
 from tasteos_api.models.grocery_item import GroceryItem
@@ -68,8 +68,8 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 async def test_user(db_session: AsyncSession) -> User:
     from sqlmodel import select
     # Try to find existing user first
-    result = await db_session.execute(select(User).where(User.email == "testuser@example.com"))
-    user = result.scalar_one_or_none()
+    result = await db_session.exec(select(User).where(User.email == "testuser@example.com"))
+    user = result.first()
 
     if user is None:
         user = User(
@@ -87,6 +87,38 @@ async def test_user(db_session: AsyncSession) -> User:
     return user
 
 
+@pytest_asyncio.fixture(scope="function")
+async def test_household(db_session: AsyncSession, test_user: User) -> Household:
+    """
+    Create a test household and link the test user to it.
+    Phase 4: Every test user belongs to a household.
+    """
+    from sqlmodel import select
+
+    # Check if household already exists
+    result = await db_session.exec(
+        select(Household).where(Household.name == "Test Household")
+    )
+    household = result.first()
+
+    if household is None:
+        household = Household(name="Test Household")
+        db_session.add(household)
+        await db_session.flush()
+
+        # Create membership
+        membership = HouseholdMembership(
+            household_id=household.id,
+            user_id=test_user.id,
+            role="owner"
+        )
+        db_session.add(membership)
+        await db_session.commit()
+        await db_session.refresh(household)
+
+    return household
+
+
 def override_get_db_session(db_session: AsyncSession):
     async def _override():
         # FastAPI Depends expects a callable that yields the session
@@ -100,15 +132,29 @@ def override_get_current_user(user: User):
     return _override
 
 
+def override_get_current_household(household: Household):
+    """
+    Override get_current_household for tests.
+    Returns a SimpleNamespace with id and name matching the test household.
+    """
+    async def _override():
+        return SimpleNamespace(id=household.id, name=household.name)
+    return _override
+
+
 @pytest_asyncio.fixture
-async def async_client(db_session: AsyncSession, test_user: User):
+async def async_client(db_session: AsyncSession, test_user: User, test_household: Household):
     # Override DB dep
     app.dependency_overrides[get_db_session] = override_get_db_session(db_session)
 
     # Override auth dep
     # Imports inline to avoid circular import at module import time
-    from tasteos_api.core.dependencies import get_current_user as real_dep
-    app.dependency_overrides[real_dep] = override_get_current_user(test_user)
+    from tasteos_api.core.dependencies import get_current_user as real_user_dep
+    app.dependency_overrides[real_user_dep] = override_get_current_user(test_user)
+
+    # Override household dep (Phase 4)
+    from tasteos_api.core.dependencies import get_current_household as real_household_dep
+    app.dependency_overrides[real_household_dep] = override_get_current_household(test_household)
 
     # Use ASGITransport for httpx AsyncClient with follow_redirects
     async with AsyncClient(
@@ -127,13 +173,15 @@ async def async_client(db_session: AsyncSession, test_user: User):
 # ------------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def pantry_seed(db_session: AsyncSession, test_user: User):
+async def pantry_seed(db_session: AsyncSession, test_user: User, test_household: Household):
     item = PantryItem(
         user_id=test_user.id,
+        household_id=test_household.id,
+        added_by_user_id=test_user.id,
         name="chicken breast",
         quantity=2.0,
         unit="lb",
-        expires_at=datetime.utcnow() + timedelta(days=2),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=2),
         # tags is a JSON/text field in your model, so serialize here:
         tags=json.dumps(["protein", "lean"]),
     )
@@ -144,27 +192,28 @@ async def pantry_seed(db_session: AsyncSession, test_user: User):
 
 
 @pytest_asyncio.fixture
-async def meal_plan_seed(db_session: AsyncSession, test_user: User):
+async def meal_plan_seed(db_session: AsyncSession, test_user: User, test_household: Household):
     from sqlmodel import select
     # Check if plan already exists for today
-    result = await db_session.execute(
+    result = await db_session.exec(
         select(MealPlan).where(
             MealPlan.user_id == test_user.id,
+            MealPlan.household_id == test_household.id,
             MealPlan.date == date.today()
         )
     )
     day_plan = result.first()
-    if day_plan:
-        day_plan = day_plan[0]  # Extract from tuple
 
     if day_plan is None:
         day_plan = MealPlan(
             user_id=test_user.id,
+            household_id=test_household.id,
             date=date.today(),
             breakfast=json.dumps([{"recipe_id": "r1", "title": "Egg Whites Scramble"}]),
             lunch=json.dumps([{"recipe_id": "r2", "title": "Grilled Chicken Bowl"}]),
             dinner=json.dumps([{"recipe_id": "r3", "title": "Salmon + Greens"}]),
             snacks=json.dumps([{"recipe_id": "r4", "title": "Greek Yogurt"}]),
+            notes_per_user=json.dumps({}),
             total_calories=2100,
             notes="High protein day 💪",
         )
@@ -176,14 +225,16 @@ async def meal_plan_seed(db_session: AsyncSession, test_user: User):
 
 
 @pytest_asyncio.fixture
-async def grocery_seed(db_session: AsyncSession, test_user: User, meal_plan_seed: MealPlan):
+async def grocery_seed(db_session: AsyncSession, test_user: User, test_household: Household, meal_plan_seed: MealPlan):
     g = GroceryItem(
         user_id=test_user.id,
+        household_id=test_household.id,
         meal_plan_id=meal_plan_seed.id,
         name="chicken breast",
         quantity=2.0,
         unit="lb",
         purchased=False,
+        assigned_to_user=None,
     )
     db_session.add(g)
     await db_session.commit()

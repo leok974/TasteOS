@@ -24,6 +24,8 @@ class PantryItem(BaseModel, table=True):
     __tablename__ = "pantry_items"
 
     user_id: UUID = Field(foreign_key="users.id", index=True)
+    household_id: UUID = Field(foreign_key="households.id", index=True)
+    added_by_user_id: UUID = Field(foreign_key="users.id")
 
     # Item details
     name: str = Field(index=True)  # e.g., "chicken breast", "onion"

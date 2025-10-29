@@ -24,7 +24,9 @@ class GroceryItem(BaseModel, table=True):
     __tablename__ = "grocery_items"
 
     user_id: UUID = Field(foreign_key="users.id", index=True)
+    household_id: UUID = Field(foreign_key="households.id", index=True)
     meal_plan_id: Optional[UUID] = Field(default=None, foreign_key="meal_plans.id", index=True)
+    assigned_to_user: Optional[UUID] = Field(default=None, foreign_key="users.id")
 
     # Item details
     name: str = Field(index=True)

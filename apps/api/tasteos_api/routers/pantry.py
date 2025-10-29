@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tasteos_api.core.dependencies import get_current_user
+from tasteos_api.core.dependencies import get_current_user, get_current_household
 from tasteos_api.core.database import get_db_session
 from tasteos_api.models.user import User
 from tasteos_api.models.pantry_item import (
@@ -31,19 +31,21 @@ router = APIRouter(prefix="/pantry", tags=["pantry"])
 @router.get("/", response_model=List[PantryItemRead])
 async def get_pantry(
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> List[PantryItemRead]:
     """
-    Get all pantry items for the current user.
+    Get all pantry items for the current household.
 
     Returns a list of items with quantities, units, expiration dates, and tags.
+    Phase 4: Scoped by household instead of individual user.
     """
-    result = await session.execute(
+    result = await session.exec(
         select(PantryItem)
-        .where(PantryItem.user_id == current_user.id)
+        .where(PantryItem.household_id == current_household.id)
         .order_by(PantryItem.created_at.desc())
     )
-    items = result.scalars().all()
+    items = result.all()
 
     return [
         PantryItemRead(
@@ -65,6 +67,7 @@ async def get_pantry(
 async def add_pantry_item(
     data: PantryItemCreate,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> PantryItemRead:
     """
@@ -72,14 +75,15 @@ async def add_pantry_item(
 
     If an item with the same name already exists, updates the quantity instead.
     This implements upsert logic for pantry management.
+    Phase 4: Scoped by household.
     """
     # Check if item already exists
-    result = await session.execute(
+    result = await session.exec(
         select(PantryItem)
-        .where(PantryItem.user_id == current_user.id)
+        .where(PantryItem.household_id == current_household.id)
         .where(PantryItem.name == data.name)
     )
-    existing_item = result.scalar_one_or_none()
+    existing_item = result.first()
 
     if existing_item:
         # Update existing item (upsert)
@@ -113,6 +117,8 @@ async def add_pantry_item(
     # Create new item
     new_item = PantryItem(
         user_id=current_user.id,
+        household_id=current_household.id,
+        added_by_user_id=current_user.id,
         name=data.name,
         quantity=data.quantity,
         unit=data.unit,
@@ -141,17 +147,19 @@ async def add_pantry_item(
 async def delete_pantry_item(
     item_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> dict:
     """
     Delete an item from the pantry.
+    Phase 4: Household-scoped, returns 404 if not in household.
     """
-    result = await session.execute(
+    result = await session.exec(
         select(PantryItem)
         .where(PantryItem.id == item_id)
-        .where(PantryItem.user_id == current_user.id)
+        .where(PantryItem.household_id == current_household.id)
     )
-    item = result.scalar_one_or_none()
+    item = result.first()
 
     if not item:
         raise HTTPException(status_code=404, detail="Pantry item not found")

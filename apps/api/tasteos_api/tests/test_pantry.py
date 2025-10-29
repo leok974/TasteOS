@@ -2,6 +2,9 @@ import json
 import pytest
 from unittest.mock import patch
 
+pytestmark = pytest.mark.phase3
+
+
 @pytest.mark.asyncio
 async def test_get_pantry_items(async_client, pantry_seed):
     resp = await async_client.get("/api/v1/pantry")

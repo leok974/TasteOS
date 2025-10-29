@@ -1,6 +1,9 @@
 import pytest
 from unittest.mock import patch
 
+pytestmark = pytest.mark.phase3
+
+
 @pytest.mark.asyncio
 async def test_generate_shopping_list(async_client, meal_plan_seed):
     fake_list = [

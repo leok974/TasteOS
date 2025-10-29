@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tasteos_api.core.dependencies import get_current_user
+from tasteos_api.core.dependencies import get_current_user, get_current_household
 from tasteos_api.core.database import get_db_session
 from tasteos_api.models.user import User
 from tasteos_api.models.meal_plan import (
@@ -33,6 +33,7 @@ router = APIRouter(prefix="/planner", tags=["planner"])
 async def generate_meal_plan(
     request: GeneratePlanRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> GeneratePlanResponse:
     """
@@ -40,6 +41,7 @@ async def generate_meal_plan(
 
     Takes nutrition goals, dietary preferences, and budget constraints,
     then creates a personalized meal plan that uses pantry inventory.
+    Phase 4: Scoped by household.
 
     Args:
         request: Plan parameters including days, goals, preferences
@@ -48,11 +50,11 @@ async def generate_meal_plan(
         Generated plan with IDs and summary
     """
 
-    # Get user's pantry items
-    pantry_result = await session.execute(
-        select(PantryItem).where(PantryItem.user_id == current_user.id)
+    # Get household's pantry items
+    pantry_result = await session.exec(
+        select(PantryItem).where(PantryItem.household_id == current_household.id)
     )
-    pantry_items = pantry_result.scalars().all()
+    pantry_items = pantry_result.all()
 
     # Convert to dict format for agent
     pantry_data = [
@@ -83,11 +85,13 @@ async def generate_meal_plan(
     for day_plan in plan_data:
         meal_plan = MealPlan(
             user_id=current_user.id,
+            household_id=current_household.id,
             date=datetime.fromisoformat(day_plan["date"]).date(),
             breakfast=json.dumps(day_plan.get("breakfast", [])),
             lunch=json.dumps(day_plan.get("lunch", [])),
             dinner=json.dumps(day_plan.get("dinner", [])),
             snacks=json.dumps(day_plan.get("snacks", [])),
+            notes_per_user=json.dumps(day_plan.get("notes_per_user", {})),
             total_calories=day_plan.get("total_calories"),
             total_protein_g=day_plan.get("total_protein_g"),
             total_carbs_g=day_plan.get("total_carbs_g"),
@@ -120,10 +124,12 @@ async def generate_meal_plan(
 @router.get("/today", response_model=MealPlanRead)
 async def get_today_plan(
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> MealPlanRead:
     """
     Get the meal plan for today.
+    Phase 4: Scoped by household.
 
     Returns:
         Today's meal plan with all meals
@@ -133,12 +139,12 @@ async def get_today_plan(
     """
     today = date.today()
 
-    result = await session.execute(
+    result = await session.exec(
         select(MealPlan)
-        .where(MealPlan.user_id == current_user.id)
+        .where(MealPlan.household_id == current_household.id)
         .where(MealPlan.date == today)
     )
-    plan = result.scalar_one_or_none()
+    plan = result.first()
 
     if not plan:
         raise HTTPException(
@@ -169,10 +175,12 @@ async def get_today_plan(
 async def get_meal_plan(
     plan_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_household: Annotated[object, Depends(get_current_household)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> MealPlanRead:
     """
     Get a specific meal plan by ID.
+    Phase 4: Household-scoped, returns 404 if not in household.
 
     Args:
         plan_id: UUID of the meal plan
@@ -181,14 +189,14 @@ async def get_meal_plan(
         The meal plan with all details
 
     Raises:
-        404: If plan not found or not owned by user
+        404: If plan not found or not owned by household
     """
-    result = await session.execute(
+    result = await session.exec(
         select(MealPlan)
         .where(MealPlan.id == plan_id)
-        .where(MealPlan.user_id == current_user.id)
+        .where(MealPlan.household_id == current_household.id)
     )
-    plan = result.scalar_one_or_none()
+    plan = result.first()
 
     if not plan:
         raise HTTPException(status_code=404, detail="Meal plan not found")

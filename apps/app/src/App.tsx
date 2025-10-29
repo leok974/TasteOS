@@ -13,6 +13,7 @@ import { ShoppingPage } from './routes/shopping'
 import DashboardPage from './routes/dashboard'
 import InviteOwnerPage from './routes/invite'
 import JoinHouseholdPage from './routes/join'
+import LandingPage from './routes/landing'
 import { CreditCard, BookOpen, FileUp, Package, CalendarDays, ShoppingCart, LayoutDashboard, UserPlus, Users } from 'lucide-react'
 
 function App() {
@@ -96,14 +97,7 @@ function App() {
       <main>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <DashboardHome />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<LandingPage />} />
           <Route
             path="/dashboard"
             element={
@@ -201,42 +195,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   return <>{children}</>
-}
-
-function DashboardHome() {
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="space-y-6">
-        <h1 className="text-4xl font-bold">Welcome to TasteOS</h1>
-        <p className="text-xl text-gray-600">
-          Your AI-powered cooking companion is ready to help transform your kitchen experience.
-        </p>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-          <Link to="/recipes" className="block">
-            <div className="bg-white border rounded-lg p-6 hover:shadow-lg transition-shadow">
-              <h2 className="text-xl font-semibold mb-2">Recipe Library</h2>
-              <p className="text-gray-600 mb-4">Browse and manage your collection of recipes</p>
-              <Button variant="default">View Recipes</Button>
-            </div>
-          </Link>
-          <Link to="/recipes" className="block">
-            <div className="bg-white border rounded-lg p-6 hover:shadow-lg transition-shadow">
-              <h2 className="text-xl font-semibold mb-2">AI Variants</h2>
-              <p className="text-gray-600 mb-4">Generate recipe variations with AI assistance</p>
-              <Button variant="outline">Generate Variants</Button>
-            </div>
-          </Link>
-          <Link to="/settings/billing" className="block">
-            <div className="bg-white border rounded-lg p-6 hover:shadow-lg transition-shadow">
-              <h2 className="text-xl font-semibold mb-2">Subscription</h2>
-              <p className="text-gray-600 mb-4">Manage your plan and billing</p>
-              <Button variant="outline">Billing Settings</Button>
-            </div>
-          </Link>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export default App

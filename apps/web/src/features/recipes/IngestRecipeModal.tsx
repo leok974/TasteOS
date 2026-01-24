@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -29,6 +29,18 @@ export function IngestRecipeModal() {
     const ingestMutation = useIngestRecipe();
     const { toast } = useToast();
     const router = useRouter();
+
+    // Auto-fill from hash fragment (magic link support)
+    useEffect(() => {
+        const hash = window.location.hash;
+        if (hash && hash.startsWith('#tasteos-v1:')) {
+            const token = hash.substring(1); // Remove # prefix
+            setText(token);
+            setIsOpen(true);
+            // Clear hash from URL
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+    }, []);
 
     const handleIngest = async () => {
         setError(null);

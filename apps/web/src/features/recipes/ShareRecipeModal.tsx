@@ -33,6 +33,11 @@ export function ShareRecipeModal({ recipeId, trigger }: ShareRecipeModalProps) {
 
     const jsonString = portableRecipe ? JSON.stringify(portableRecipe, null, 2) : '';
 
+    // Generate magic link with hash fragment (privacy)
+    const magicLink = magicToken
+        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/recipes#${magicToken}`
+        : null;
+
     const handleCopy = async () => {
         if (jsonString) {
             await navigator.clipboard.writeText(jsonString);
@@ -130,17 +135,17 @@ export function ShareRecipeModal({ recipeId, trigger }: ShareRecipeModalProps) {
                 </DialogFooter>
 
                 <div className="px-6 pb-6 pt-2 border-t mt-4">
-                    <Label className="mb-2 block">Magic Link (Shareable Token)</Label>
+                    <Label className="mb-2 block">Magic Link (Privacy-First Sharing)</Label>
                     <div className="flex gap-2">
                         <div className="flex-1 p-2 bg-muted rounded text-xs font-mono truncate border">
-                            {magicToken ? magicToken : "Loading token..."}
+                            {magicLink ? magicLink : "Loading link..."}
                         </div>
                         <Button
                             size="sm"
-                            disabled={!magicToken}
+                            disabled={!magicLink}
                             onClick={() => {
-                                if (magicToken) {
-                                    navigator.clipboard.writeText(magicToken);
+                                if (magicLink) {
+                                    navigator.clipboard.writeText(magicLink);
                                     setTokenCopied(true);
                                     setTimeout(() => setTokenCopied(false), 2000);
                                 }
@@ -150,7 +155,7 @@ export function ShareRecipeModal({ recipeId, trigger }: ShareRecipeModalProps) {
                         </Button>
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-2">
-                        This token contains the full recipe. Anyone with this token can import it without a server connection.
+                        🔒 Token travels in URL hash (never sent to server). Contains full recipe + checksum for security.
                     </p>
                 </div>
             </DialogContent >

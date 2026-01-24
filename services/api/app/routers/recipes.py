@@ -8,9 +8,12 @@ Endpoints:
 """
 
 import uuid
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
@@ -20,6 +23,8 @@ from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch
 from ..settings import settings
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+logger = logging.getLogger("tasteos.recipes")
 
 
 def _build_image_url(storage_key: Optional[str]) -> Optional[str]:

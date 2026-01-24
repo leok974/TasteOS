@@ -22,8 +22,13 @@ def test_macro_analysis_mock(client, workspace, db_session):
     
     assert response.status_code == 200
     data = response.json()
-    assert "High Protein" in data["summary"]
-    assert "~600" in data["calories"]
+    # New enhanced response structure
+    assert "calories_range" in data
+    assert "min" in data["calories_range"]
+    assert "max" in data["calories_range"]
+    assert "confidence" in data
+    assert "disclaimer" in data
+    assert "tags" in data
 
 def test_macro_analysis_not_found(client, workspace):
     headers = {"X-Workspace-ID": workspace.slug}

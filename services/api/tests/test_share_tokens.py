@@ -1,5 +1,5 @@
 import pytest
-from app.parsing.token_encoder import encode_recipe_token, decode_recipe_token
+from app.parsing.token_encoder import encode_recipe_token, decode_recipe_token, TokenCorruptedError
 
 def test_token_encoder_logic():
     data = {"title": "Test", "ingredients": [{"name": "flour"}]}
@@ -11,7 +11,7 @@ def test_token_encoder_logic():
     assert decoded["ingredients"][0]["name"] == "flour"
 
 def test_token_encoder_invalid():
-    with pytest.raises(ValueError):
+    with pytest.raises(TokenCorruptedError):
         decode_recipe_token("invalid-pantry-item")
 
 def test_get_share_token_endpoint(client, workspace):

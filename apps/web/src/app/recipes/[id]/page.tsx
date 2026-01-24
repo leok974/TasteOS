@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -32,6 +32,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
+import { useCookSessionActive, useCookSessionStart, useCookSessionPatch } from '@/features/cook/hooks';
 
 // Convert API step to CookStep format
 interface CookStep {
@@ -565,22 +566,73 @@ export default function RecipeDetailPage() {
     const [cookOpen, setCookOpen] = useState(false);
     const [subOpen, setSubOpen] = useState(false);
     const [stepIdx, setStepIdx] = useState(0);
-    const [checks, setChecks] = useState<Record<string, boolean>>({});
 
-    // Reset cook mode state when opening
+    // Cook session hooks
+    const { data: session, isLoading: sessionLoading } = useCookSessionActive(cookOpen ? recipeId : undefined);
+    const startSessionMutation = useCookSessionStart();
+    const patchSessionMutation = useCookSessionPatch(session?.id);
+    const sessionStarted = useRef(false);
+
+    // Auto-start session when cook mode opens
     useEffect(() => {
-        if (cookOpen) {
-            setStepIdx(0);
-            setChecks({});
+        if (cookOpen && !sessionLoading && !session && !sessionStarted.current) {
+            sessionStarted.current = true;
+            startSessionMutation.mutate(recipeId);
+        }
+    }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation]);
+
+    // Reset session started flag when cook mode closes
+    useEffect(() => {
+        if (!cookOpen) {
+            sessionStarted.current = false;
         }
     }, [cookOpen]);
 
+    // Update step index from session
+    useEffect(() => {
+        if (session && cookOpen) {
+            setStepIdx(session.current_step_index);
+        }
+    }, [session, cookOpen]);
+
+    // Sync step index to session when changed
+    const handleStepChange = (newStepIdx: number) => {
+        setStepIdx(newStepIdx);
+        if (session) {
+            patchSessionMutation.mutate({ current_step_index: newStepIdx });
+        }
+    };
+
+    // Get checks from session or empty object
+    const checks: Record<string, boolean> = {};
+    if (session) {
+        Object.entries(session.step_checks).forEach(([stepIdx, bullets]) => {
+            Object.entries(bullets).forEach(([bulletIdx, checked]) => {
+                if (checked) {
+                    checks[`${stepIdx}:${bulletIdx}`] = true;
+                }
+            });
+        });
+    }
+
     const toggleCheck = (key: string) => {
-        setChecks((prev) => ({ ...prev, [key]: !prev[key] }));
+        const [stepIndex, bulletIndex] = key.split(':').map(Number);
+        const checked = !checks[key];
+
+        if (session) {
+            patchSessionMutation.mutate({
+                step_checks_patch: {
+                    step_index: stepIndex,
+                    bullet_index: bulletIndex,
+                    checked,
+                },
+            });
+        }
     };
 
     // Convert API steps to CookStep format
     const cookSteps: CookStep[] = recipe?.steps.map(apiStepToCookStep) ?? [];
+
 
     if (isLoading) {
         return (

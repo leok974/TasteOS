@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from .db import Base
 
@@ -415,5 +415,24 @@ class UserPrefs(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class CookSession(Base):
+    """Cooking session with persistent state for timers and step checks."""
+    __tablename__ = "cook_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    current_step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    step_checks: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    timers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    workspace: Mapped["Workspace"] = relationship()
+    recipe: Mapped["Recipe"] = relationship()
+
 
 

@@ -521,12 +521,21 @@ function MacroBadge({ recipeId }: { recipeId: string }) {
     const { mutate, data, isPending } = useAnalyzeMacros();
 
     if (data) {
+        const caloriesText = data.calories_range
+            ? `${data.calories_range.min}-${data.calories_range.max} cal`
+            : '';
+        const proteinText = data.protein_range
+            ? ` • ${data.protein_range.min}-${data.protein_range.max}g protein`
+            : '';
+        const tagsText = data.tags?.join(', ') || '';
+
         return (
-            <div className="flex items-center gap-2 animate-in fade-in">
+            <div className="flex items-center gap-2 animate-in fade-in" title={data.disclaimer}>
                 <Sparkles className="h-4 w-4 text-purple-500" />
                 <span className="font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100 text-xs uppercase tracking-tight">
-                    {data.summary} ({data.calories})
+                    {tagsText} ({caloriesText}{proteinText})
                 </span>
+                <span className="text-[10px] text-stone-400 uppercase">{data.confidence}</span>
             </div>
         );
     }

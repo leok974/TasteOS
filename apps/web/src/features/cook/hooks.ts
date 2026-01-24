@@ -3,7 +3,36 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { API_BASE } from "@/lib/api";
+
+// Get workspace ID from context (set by WorkspaceProvider)
+let currentWorkspaceId: string | null = null;
+if (typeof window !== 'undefined') {
+    // Will be set by the workspace provider
+    currentWorkspaceId = localStorage.getItem('currentWorkspaceId');
+}
+
+// Helper function for API calls with workspace headers
+async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const headers = new Headers(options?.headers);
+    headers.set('Content-Type', 'application/json');
+
+    // Add workspace header if available
+    if (currentWorkspaceId) {
+        headers.set('X-Workspace-Id', currentWorkspaceId);
+    }
+
+    const response = await fetch(`${API_BASE}${url}`, {
+        ...options,
+        headers,
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+}
 
 // Types matching backend responses
 export interface CookSession {
@@ -38,10 +67,9 @@ export function useCookSessionActive(recipeId?: string) {
         queryKey: ["cook-session", "active", recipeId],
         queryFn: async () => {
             if (!recipeId) return null;
-            const response = await api.get<CookSession>(
+            return cookFetch<CookSession>(
                 `/cook/session/active?recipe_id=${recipeId}`
             );
-            return response.data;
         },
         enabled: !!recipeId,
         retry: false, // Don't retry 404s
@@ -54,10 +82,10 @@ export function useCookSessionStart() {
 
     return useMutation({
         mutationFn: async (recipeId: string) => {
-            const response = await api.post<CookSession>("/cook/session/start", {
-                recipe_id: recipeId,
+            return cookFetch<CookSession>("/cook/session/start", {
+                method: "POST",
+                body: JSON.stringify({ recipe_id: recipeId }),
             });
-            return response.data;
         },
         onSuccess: (data) => {
             queryClient.setQueryData(
@@ -92,11 +120,10 @@ export function useCookSessionPatch(sessionId?: string) {
             };
         }) => {
             if (!sessionId) throw new Error("Session ID required");
-            const response = await api.patch<CookSession>(
-                `/cook/session/${sessionId}`,
-                patch
-            );
-            return response.data;
+            return cookFetch<CookSession>(`/cook/session/${sessionId}`, {
+                method: "PATCH",
+                body: JSON.stringify(patch),
+            });
         },
         onSuccess: (data) => {
             // Update cache
@@ -118,8 +145,10 @@ export function useCookAssist() {
             intent: "substitute" | "macros" | "fix";
             payload: Record<string, any>;
         }) => {
-            const response = await api.post<AssistResponse>("/cook/assist", request);
-            return response.data;
+            return cookFetch<AssistResponse>("/cook/assist", {
+                method: "POST",
+                body: JSON.stringify(request),
+            });
         },
     });
 }

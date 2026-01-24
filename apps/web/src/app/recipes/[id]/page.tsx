@@ -218,6 +218,9 @@ function CookModeOverlay({
     checks,
     onToggle,
     onSubstitute,
+    session,
+    onTimerCreate,
+    onTimerAction,
 }: {
     open: boolean;
     onClose: () => void;
@@ -228,6 +231,9 @@ function CookModeOverlay({
     checks: Record<string, boolean>;
     onToggle: (key: string) => void;
     onSubstitute: () => void;
+    session?: { id: string; timers: Record<string, any> } | null;
+    onTimerCreate?: (label: string, durationSec: number) => void;
+    onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
 }) {
     const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
 
@@ -329,27 +335,34 @@ function CookModeOverlay({
                             })}
                         </div>
 
-                        <div className="mt-6">
+
+                        <div className="mt-6 space-y-4">
+                            {/* Timer Manager */}
                             <Card className="rounded-[2.5rem] border-amber-100/50 bg-white shadow-sm">
                                 <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm text-stone-900">Ask while you cook</CardTitle>
+                                    <CardTitle className="text-sm text-stone-900 flex items-center gap-2">
+                                        <Clock className="h-4 w-4 text-amber-600" />
+                                        Timers
+                                    </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-semibold text-stone-500">
-                                        e.g. "Sauce is thin — how do I thicken without ruining it?"
-                                    </div>
-                                    <div className="mt-3 flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            className="h-11 flex-1 rounded-2xl border-amber-100/60 hover:bg-amber-50/60"
-                                            onClick={onSubstitute}
-                                        >
-                                            Swap ingredient
-                                        </Button>
-                                        <Button variant="outline" className="h-11 flex-1 rounded-2xl border-amber-100/60 hover:bg-amber-50/60">
-                                            Scale recipe
-                                        </Button>
-                                    </div>
+                                    <TimerManager
+                                        stepIndex={stepIdx}
+                                        timers={session?.timers || {}}
+                                        onTimerCreate={(label, durationSec) => {
+                                            onTimerCreate?.(label, durationSec);
+                                        }}
+                                        onTimerAction={(timerId, action) => {
+                                            onTimerAction?.(timerId, action);
+                                        }}
+                                    />
+                                </CardContent>
+                            </Card>
+
+                            {/* Assist Panel */}
+                            <Card className="rounded-[2.5rem] border-amber-100/50 bg-white shadow-sm">
+                                <CardContent className="pt-6">
+                                    <AssistPanel recipeId={recipe.id} stepIndex={stepIdx} />
                                 </CardContent>
                             </Card>
                         </div>
@@ -670,10 +683,30 @@ export default function RecipeDetailPage() {
                 recipe={recipe}
                 steps={cookSteps}
                 stepIdx={stepIdx}
-                setStepIdx={setStepIdx}
+                setStepIdx={handleStepChange}
                 checks={checks}
                 onToggle={toggleCheck}
                 onSubstitute={() => setSubOpen(true)}
+                session={session}
+                onTimerCreate={(label, durationSec) => {
+                    if (session) {
+                        patchSessionMutation.mutate({
+                            timer_create: {
+                                step_index: stepIdx,
+                                bullet_index: null,
+                                label,
+                                duration_sec: durationSec,
+                            },
+                        });
+                    }
+                }}
+                onTimerAction={(timerId, action) => {
+                    if (session) {
+                        patchSessionMutation.mutate({
+                            timer_action: { timer_id: timerId, action },
+                        });
+                    }
+                }}
             />
 
             <SubstituteModal

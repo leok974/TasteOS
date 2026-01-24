@@ -2,6 +2,10 @@ import pytest
 from app.parsing.token_encoder import (
     encode_recipe_token,
     decode_recipe_token,
+    TokenError,
+    TokenVersionError,
+    TokenTooLargeError,
+    TokenCorruptedError,
     MAX_TOKEN_LENGTH,
     MAX_DECOMPRESSED_SIZE
 )
@@ -40,7 +44,7 @@ def test_token_checksum_tampering_detected():
     tampered_checksum = parts[1][:-1] + ('0' if parts[1][-1] != '0' else '1')
     tampered_token = f"{parts[0]}:{tampered_checksum}:{parts[2]}"
     
-    with pytest.raises(ValueError, match="checksum mismatch"):
+    with pytest.raises(TokenCorruptedError, match="checksum mismatch"):
         decode_recipe_token(tampered_token)
 
 def test_token_size_limit_exceeded():
@@ -53,22 +57,22 @@ def test_token_size_limit_exceeded():
         }
     }
     
-    with pytest.raises(ValueError, match="Recipe data too large"):
+    with pytest.raises(TokenTooLargeError, match="Recipe data too large"):
         encode_recipe_token(huge_data)
 
 def test_token_invalid_prefix():
     """Test that tokens without proper prefix are rejected."""
-    with pytest.raises(ValueError, match="Invalid token format: missing prefix"):
+    with pytest.raises(TokenCorruptedError, match="prefix"):
         decode_recipe_token("invalid:checksum:data")
 
 def test_token_malformed_structure():
     """Test that tokens without checksum separator are rejected."""
-    with pytest.raises(ValueError, match="missing checksum or data"):
+    with pytest.raises(TokenCorruptedError, match="missing checksum or data"):
         decode_recipe_token("tasteos-v1:onlyonepart")
 
 def test_token_invalid_checksum_format():
     """Test that non-hex checksums are rejected."""
-    with pytest.raises(ValueError, match="malformed checksum"):
+    with pytest.raises(TokenCorruptedError, match="checksum"):
         decode_recipe_token("tasteos-v1:ZZZZ_not_hex_ZZZZ:somedata")
 
 def test_token_corrupted_base64():
@@ -77,7 +81,7 @@ def test_token_corrupted_base64():
     invalid_b64 = "!!!invalid!!!"
     token = f"tasteos-v1:{valid_checksum}:{invalid_b64}"
     
-    with pytest.raises(ValueError, match="Failed to decode token"):
+    with pytest.raises(TokenCorruptedError):
         decode_recipe_token(token)
 
 def test_token_size_check_before_processing():
@@ -85,7 +89,7 @@ def test_token_size_check_before_processing():
     # Create a token that's too long
     long_token = "tasteos-v1:" + "a" * (MAX_TOKEN_LENGTH + 1000)
     
-    with pytest.raises(ValueError, match="Token too large"):
+    with pytest.raises(TokenTooLargeError, match="too large"):
         decode_recipe_token(long_token)
 
 def test_backwards_compatibility_old_tokens_fail():
@@ -102,5 +106,5 @@ def test_backwards_compatibility_old_tokens_fail():
     old_token = f"tasteos-v1:{b64}"
     
     # Should fail with "missing checksum or data" since there's no second colon
-    with pytest.raises(ValueError, match="missing checksum or data"):
+    with pytest.raises(TokenCorruptedError, match="missing checksum or data"):
         decode_recipe_token(old_token)

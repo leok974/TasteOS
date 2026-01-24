@@ -33,6 +33,8 @@ import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
 import { useCookSessionActive, useCookSessionStart, useCookSessionPatch } from '@/features/cook/hooks';
+import { TimerManager } from '@/features/cook/TimerManager';
+import { AssistPanel } from '@/features/cook/AssistPanel';
 
 // Convert API step to CookStep format
 interface CookStep {
@@ -110,6 +112,7 @@ function StepCard({
                                 key={key}
                                 type="button"
                                 onClick={() => onToggle(key)}
+                                data-testid={`bullet-check-${index}-${i}`}
                                 className={cn(
                                     "flex w-full items-start gap-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3 text-left",
                                     checked && "border-amber-200 bg-amber-50/50"

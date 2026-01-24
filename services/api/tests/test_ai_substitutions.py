@@ -35,5 +35,6 @@ def test_substitute_endpoint_fallback(client, workspace):
     
     assert response.status_code == 200
     data = response.json()
-    assert "Mock Substitute" in data["substitute"]
+    assert "pantry" in data["substitute"].lower()  # Generic fallback mentions pantry
     assert data["confidence"] == "low"
+    assert data["impact"] == "different"

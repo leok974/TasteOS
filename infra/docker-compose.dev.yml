@@ -1,0 +1,126 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tasteos
+      POSTGRES_PASSWORD: tasteos
+      POSTGRES_DB: tasteos
+    ports:
+      - "5433:5432"
+    volumes:
+      - tasteos_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasteos -d tasteos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORE_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORE_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - tasteos_minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # creates bucket if missing
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${OBJECT_STORE_ACCESS_KEY_ID:-minioadmin} ${OBJECT_STORE_SECRET_ACCESS_KEY:-minioadmin};
+      mc mb -p local/${OBJECT_STORE_BUCKET:-tasteos-images} || true;
+      mc anonymous set download local/${OBJECT_STORE_BUCKET:-tasteos-images} || true;
+      echo 'minio initialized';
+      "
+
+  api:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://tasteos:tasteos@db:5432/tasteos}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AI_MODE: ${AI_MODE:-gemini}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
+      OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-auto}
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-tasteos-images}
+      OBJECT_STORE_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY_ID:-minioadmin}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:-minioadmin}
+      OBJECT_PUBLIC_BASE_URL: ${OBJECT_PUBLIC_BASE_URL:-http://localhost:9000/tasteos-images}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ../services/api:/app
+
+  worker:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    command: python -m app.worker
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://tasteos:tasteos@db:5432/tasteos}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AI_MODE: ${AI_MODE:-gemini}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
+      OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-auto}
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-tasteos-images}
+      OBJECT_STORE_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY_ID:-minioadmin}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:-minioadmin}
+      POLL_INTERVAL: 5
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ../services/api:/app
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+    volumes:
+      - ../apps/web:/app/apps/web
+      - /app/apps/web/node_modules
+
+volumes:
+  tasteos_pg:
+  tasteos_minio:

@@ -1,0 +1,19 @@
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+pydantic==2.10.6
+pydantic-settings==2.6.1
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.9
+httpx==0.27.2
+
+# AI + images
+google-genai>=1.0.0,<2.0.0
+Pillow==10.4.0
+
+# S3-compatible object store (R2/MinIO)
+boto3==1.35.85
+
+# tests
+pytest==8.3.4
+pytest-asyncio==0.24.0

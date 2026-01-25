@@ -214,11 +214,13 @@ export function TimerManager({ stepIndex, timers, onTimerCreate, onTimerAction }
                             <Button
                                 key={preset.seconds}
                                 variant="outline"
-                                className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60"
+                                className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60 font-semibold"
                                 onClick={() => {
+                                    console.log('[TimerManager] Creating timer:', preset);
                                     onTimerCreate(preset.label, preset.seconds);
                                     setShowPresets(false);
                                 }}
+                                data-testid={`timer-preset-${preset.seconds}`}
                             >
                                 <Clock className="h-4 w-4 mr-2" />
                                 {preset.label}

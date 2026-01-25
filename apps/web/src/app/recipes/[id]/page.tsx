@@ -19,11 +19,20 @@ import {
     Check,
     Minus,
     Plus,
+    ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet";
 import {
     useRecipe,
     useImageStatus,
@@ -57,6 +66,7 @@ import {
 import { TimerManager } from '@/features/cook/TimerManager';
 import { AssistPanel } from '@/features/cook/AssistPanel';
 import { AdjustButtons } from '@/features/cook/AdjustButtons';
+import { WhyPanel } from '@/features/cook/components/WhyPanel';
 import { apiPatchSession } from '@/lib/api';
 
 // Convert API step to CookStep format
@@ -492,6 +502,27 @@ function CookModeOverlay({
                                             sessionId={session.id}
                                             activeMethodKey={session.method_key}
                                         />
+                                        
+                                        {/* History / Why Panel */}
+                                        <Sheet>
+                                            <SheetTrigger asChild>
+                                                <Button variant="outline" size="sm" className="h-[34px] rounded-full border-amber-200/50 bg-amber-50/50 hover:bg-amber-100/50 text-amber-700">
+                                                    <ScrollText className="h-4 w-4 mr-1.5" />
+                                                    Why?
+                                                </Button>
+                                            </SheetTrigger>
+                                            <SheetContent className="w-[400px] sm:w-[540px]">
+                                                 <SheetHeader>
+                                                    <SheetTitle>Session Diagnostics</SheetTitle>
+                                                    <SheetDescription>
+                                                        Review the events and decisions made during this cooking session.
+                                                    </SheetDescription>
+                                                </SheetHeader>
+                                                <div className="mt-6">
+                                                    <WhyPanel sessionId={session.id} />
+                                                </div>
+                                            </SheetContent>
+                                        </Sheet>
                                     </>
                                 )}
 

@@ -31,10 +31,13 @@ from ..services.ai_service import ai_service
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
 from ..services.auto_step import calculate_auto_step
+from ..services.events import log_event
+from ..models import CookSessionEvent
 from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
     SessionResponse, SessionPatchRequest,
-    AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest
+    AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
+    CookSessionEventOut
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -153,6 +156,17 @@ def start_session(
     db.refresh(session)
     
     logger.info(f"Created new cook session {session.id} for recipe {request.recipe_id}")
+    
+    # Log session start
+    log_event(
+        db,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        type="session_start",
+        meta={"recipe_id": request.recipe_id}
+    )
+    db.commit() # Commit again to save event
+    
     return session_to_response(session)
 
 
@@ -208,10 +222,30 @@ def patch_session(
 
     # Apply patches
     if patch.servings_target is not None:
+        old_servings = session.servings_target
         session.servings_target = patch.servings_target
+        if old_servings != patch.servings_target:
+            log_event(
+                db, 
+                workspace_id=workspace.id, 
+                session_id=session_id, 
+                type="servings_change", 
+                meta={"from": old_servings, "to": patch.servings_target}
+            )
 
     if patch.current_step_index is not None:
+        old_step = session.current_step_index
         session.current_step_index = patch.current_step_index
+        
+        if old_step != patch.current_step_index:
+            log_event(
+                db, 
+                workspace_id=workspace.id, 
+                session_id=session_id, 
+                type="step_navigate", 
+                meta={"from": old_step, "to": patch.current_step_index, "method": "manual"}
+            )
+        
         # Manual navigation override
         session.manual_override_until = now + timedelta(minutes=3)
         interaction_occurred = True
@@ -227,8 +261,22 @@ def patch_session(
         
         if p.get('checked'):
             session.step_checks[step_key][bullet_key] = True
+            log_event(
+                db, 
+                workspace_id=workspace.id, 
+                session_id=session_id, 
+                type="check_step", 
+                meta={"step": p.get('step_index'), "bullet": p.get('bullet_index')}
+            )
         else:
             session.step_checks[step_key].pop(bullet_key, None)
+            log_event(
+                db, 
+                workspace_id=workspace.id, 
+                session_id=session_id, 
+                type="uncheck_step", 
+                meta={"step": p.get('step_index'), "bullet": p.get('bullet_index')}
+            )
         
         # Mark as modified for JSONB update
         from sqlalchemy.orm.attributes import flag_modified
@@ -253,6 +301,19 @@ def patch_session(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "timers")
         logger.info(f"Created timer {timer_id} in session {session_id}")
+        
+        log_event(
+            db, 
+            workspace_id=workspace.id, 
+            session_id=session_id, 
+            type="timer_create", 
+            meta={
+                "timer_id": timer_id, 
+                "step": t.get('step_index'), 
+                "label": t.get('label'),
+                "duration": t.get('duration_sec')
+            }
+        )
         
         interaction_occurred = True
         interaction_step_index = t.get('step_index')
@@ -297,6 +358,14 @@ def patch_session(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "timers")
         logger.info(f"Timer {a_timer_id} action: {a_action}")
+
+        log_event(
+            db, 
+            workspace_id=workspace.id, 
+            session_id=session_id, 
+            type=f"timer_{a_action}", 
+            meta={"timer_id": a_timer_id}
+        )
 
         interaction_occurred = True
         interaction_step_index = timer.get("step_index")
@@ -345,6 +414,16 @@ def end_session(
         raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
     
     session.ended_at = datetime.now(timezone.utc)
+    
+    # Log completion/abandonment
+    log_event(
+        db, 
+        workspace_id=workspace.id, 
+        session_id=session_id, 
+        type=f"session_{action}", 
+        meta={}
+    )
+    
     session.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)
@@ -352,6 +431,34 @@ def end_session(
     notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
     return session_to_response(session)
+
+
+@router.get("/session/{session_id}/events/recent", response_model=List[CookSessionEventOut])
+def get_session_events(
+    session_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get recent events for a cook session."""
+    # Verify session access
+    session = db.scalar(
+        select(CookSession.id).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    events = db.scalars(
+        select(CookSessionEvent)
+        .where(CookSessionEvent.session_id == session_id)
+        .order_by(CookSessionEvent.created_at.desc())
+        .limit(limit)
+    ).all()
+    
+    return events
 
 
 @router.post("/assist", response_model=AssistResponse)

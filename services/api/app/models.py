@@ -463,3 +463,34 @@ class CookSession(Base):
     workspace: Mapped["Workspace"] = relationship()
 
 
+class CookSessionEvent(Base):
+    """Event log for cook session interactions (v6).
+    
+    Powers: "Why did auto-step trigger?", undo features, analytics.
+    """
+    __tablename__ = "cook_session_events"
+    __table_args__ = (
+        Index("ix_cook_events_ws_session_created", "workspace_id", "session_id", "created_at"),
+        Index("ix_cook_events_ws_created", "workspace_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    session_id: Mapped[str] = mapped_column(ForeignKey("cook_sessions.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    
+    # Enum-like type: session_start, step_nav, check_toggle, etc.
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    
+    # Context
+    step_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    bullet_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    timer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    
+    # Metadata (kept small)
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{}')
+
+    # Relationships
+    session: Mapped["CookSession"] = relationship()
+
+

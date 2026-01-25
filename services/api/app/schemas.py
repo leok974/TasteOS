@@ -326,3 +326,15 @@ class AdjustApplyRequest(BaseModel):
     step_index: int
     steps_override: list[dict]
     adjustment: CookAdjustment
+
+# --- Cook Session Events ---
+
+class CookSessionEventOut(BaseModel):
+    id: str
+    session_id: str
+    type: str
+    meta: dict = {}
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

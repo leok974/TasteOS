@@ -5,9 +5,11 @@ from sqlalchemy import select
 from ..models import CookSession, RecipeStep
 
 def ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt and dt.tzinfo is None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
-    return dt
+    return dt.astimezone(timezone.utc) # Normalize to UTC
 
 def calculate_auto_step(session: CookSession, db: Session, now: datetime) -> None:
     """

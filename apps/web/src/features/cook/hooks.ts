@@ -152,6 +152,8 @@ export function useCookSessionPatch() {
                 ["cook-session", "active", data.recipe_id],
                 data
             );
+            // Invalidate history
+            queryClient.invalidateQueries({ queryKey: ["session", data.id, "history"] });
         },
         onError: (error) => {
             console.error("[CookSessionPatch] Mutation failed:", error);
@@ -179,6 +181,8 @@ export function useCookSessionEnd() {
                 ["cook-session", "active", data.recipe_id],
                 data
             );
+            // Invalidate history
+            queryClient.invalidateQueries({ queryKey: ["session", data.id, "history"] });
         },
     });
 }
@@ -315,5 +319,13 @@ export function useCookMethodReset() {
             );
             queryClient.invalidateQueries({ queryKey: ["cook-session", "active", data.recipe_id] });
         }
+    });
+}
+
+export function useCookSessionLog(sessionId: string | undefined) {
+    return useQuery({
+        queryKey: ["session", sessionId, "history"],
+        queryFn: () => cookFetch<any[]>(`/cook/session/${sessionId}/events/recent`),
+        enabled: !!sessionId,
     });
 }

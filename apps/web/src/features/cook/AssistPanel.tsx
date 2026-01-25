@@ -90,12 +90,13 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
                     Cooking Assist
                 </Button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl">
+            <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl z-[130]">
                 <SheetHeader>
                     <SheetTitle className="font-serif text-2xl">Cooking Assistant</SheetTitle>
                     <SheetDescription>
                         Get help with substitutions, nutrition, and quick fixes
                     </SheetDescription>
+
                 </SheetHeader>
 
                 <div className="mt-6 space-y-6 overflow-y-auto h-[calc(85vh-120px)] pb-6">

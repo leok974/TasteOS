@@ -672,12 +672,14 @@ export default function RecipeDetailPage() {
     // Update step index from session
     useEffect(() => {
         if (session && cookOpen) {
+            console.log('[CookMode] Syncing step from session:', session.current_step_index);
             setStepIdx(session.current_step_index);
         }
     }, [session, cookOpen]);
 
     // Sync step index to session when changed
     const handleStepChange = (newStepIdx: number) => {
+        console.log('[CookMode] handleStepChange:', newStepIdx);
         setStepIdx(newStepIdx);
         if (session) {
             patchSessionMutation.mutate({ current_step_index: newStepIdx });

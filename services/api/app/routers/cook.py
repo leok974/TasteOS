@@ -42,10 +42,10 @@ logger = logging.getLogger("tasteos.cook")
 # session_id -> list of queues
 _session_listeners: dict[str, list[queue.Queue]] = defaultdict(list)
 
-def _notify_session_update(session: CookSession):
+def notify_session_update(session: CookSession):
     """Publish session update to all active listeners."""
     try:
-        data = _session_to_response(session).model_dump(mode='json')
+        data = session_to_response(session).model_dump(mode='json')
         msg = f"event: session\ndata: {json.dumps(data)}\n\n"
         
         listeners = _session_listeners.get(session.id, [])
@@ -121,7 +121,7 @@ def start_session(
     
     if existing:
         logger.info(f"Returning existing session {existing.id}")
-        return _session_to_response(existing)
+        return session_to_response(existing)
     
     # Verify recipe exists in workspace
     recipe = db.scalar(
@@ -150,7 +150,7 @@ def start_session(
     db.refresh(session)
     
     logger.info(f"Created new cook session {session.id} for recipe {request.recipe_id}")
-    return _session_to_response(session)
+    return session_to_response(session)
 
 
 @router.get("/session/active", response_model=SessionResponse)
@@ -172,10 +172,7 @@ def get_active_session(
     if not session:
         raise HTTPException(status_code=404, detail="No active session found")
     
-    return _session_to_response(session)
-
-
-@router.patch("/session/{session_id}", response_model=SessionResponse)
+    return session_to_response(session)
 def patch_session(
     session_id: str,
     patch: SessionPatchRequest,
@@ -278,8 +275,8 @@ def patch_session(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 @router.patch("/session/{session_id}/end", response_model=SessionResponse)
@@ -313,9 +310,9 @@ def end_session(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
+    notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
-    return _session_to_response(session)
+    return session_to_response(session)
 
 
 @router.post("/assist", response_model=AssistResponse)
@@ -569,8 +566,8 @@ def apply_method_variant(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 @router.post("/session/{session_id}/method/reset", response_model=SessionResponse)
@@ -601,13 +598,13 @@ def reset_method_variant(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 # --- Helpers ---
 
-def _session_to_response(session: CookSession) -> SessionResponse:
+def session_to_response(session: CookSession) -> SessionResponse:
     return SessionResponse(
         id=session.id,
         recipe_id=session.recipe_id,
@@ -622,6 +619,7 @@ def _session_to_response(session: CookSession) -> SessionResponse:
         steps_override=session.steps_override,
         method_tradeoffs=session.method_tradeoffs,
         method_generated_at=session.method_generated_at,
+        adjustments_log=session.adjustments_log or [],
     )
 
 def _confidence_to_float(conf_str: str) -> float:

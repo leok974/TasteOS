@@ -7,46 +7,45 @@ import { API_BASE } from "@/lib/api";
 
 // Get workspace ID from context (set by WorkspaceProvider)
 let currentWorkspaceId: string | null = null;
-if (typeof window !== 'undefined') {
-    // Helper function for API calls with workspace headers
-    async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
-        const headers = new Headers(options?.headers);
-        headers.set('Content-Type', 'application/json');
+// Helper function for API calls with workspace headers
+async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const headers = new Headers(options?.headers);
+    headers.set('Content-Type', 'application/json');
 
-        // Get workspace ID from localStorage (set by workspace selector)
-        const workspaceId = typeof window !== 'undefined'
-            ? localStorage.getItem('tasteos.workspace_id')
-            : null;
+    // Get workspace ID from localStorage (set by workspace selector)
+    const workspaceId = typeof window !== 'undefined'
+        ? localStorage.getItem('tasteos.workspace_id')
+        : null;
 
-        if (workspaceId) {
-            headers.set('X-Workspace-Id', workspaceId);
-        }
-
-        console.log('[cookFetch] Request:', {
-            url: `${API_BASE}${url}`,
-            method: options?.method || 'GET',
-            workspaceId,
-            hasBody: !!options?.body
-        });
-
-        const response = await fetch(`${API_BASE}${url}`, {
-            ...options,
-            headers,
-        });
-
-        console.log('[cookFetch] Response:', {
-            status: response.status,
-            ok: response.ok,
-            url: response.url
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        return response.json();
+    if (workspaceId) {
+        headers.set('X-Workspace-Id', workspaceId);
     }
 
+    console.log('[cookFetch] Request:', {
+        url: `${API_BASE}${url}`,
+        method: options?.method || 'GET',
+        workspaceId,
+        hasBody: !!options?.body
+    });
+
+    const response = await fetch(`${API_BASE}${url}`, {
+        ...options,
+        headers,
+    });
+
+    console.log('[cookFetch] Response:', {
+        status: response.status,
+        ok: response.ok,
+        url: response.url
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+}
+if (typeof window !== 'undefined') {
     // Types matching backend responses
     export interface CookSession {
         id: string;

@@ -1,3 +1,4 @@
+# TasteOS API Main Entry Point
 import logging
 import sys
 from fastapi import FastAPI, Request
@@ -14,7 +15,6 @@ from .routers.grocery import router as grocery_router
 from .routers.plan import router as plan_router
 from .routers.ai import router as ai_router
 from .routers.cook import router as cook_router
-from .routers.cook_adjust import router as cook_adjust_router
 from .routers.dev import router as dev_router
 from .routers.workspaces import router as workspaces_router
 
@@ -49,5 +49,4 @@ app.include_router(grocery_router, prefix="/api/grocery", tags=["grocery"])
 app.include_router(plan_router, prefix="/api", tags=["plan"])
 app.include_router(ai_router, prefix="/api", tags=["ai"])
 app.include_router(cook_router, prefix="/api", tags=["cook"])
-app.include_router(cook_adjust_router, prefix="/api", tags=["cook-adjust"])
 app.include_router(dev_router, prefix="/api", tags=["dev"])

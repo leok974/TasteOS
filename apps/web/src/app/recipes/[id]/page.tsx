@@ -255,6 +255,14 @@ function CookModeOverlay({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                 >
+                    {/* Block interactions if no session yet (initializing) */}
+                    {!session && (
+                        <div className="absolute inset-0 z-[150] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+                            <Loader2 className="h-10 w-10 animate-spin text-amber-500" />
+                            <p className="mt-4 text-sm font-bold text-stone-500 uppercase tracking-widest">Starting Session...</p>
+                        </div>
+                    )}
+
                     {/* amber wash */}
                     <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-amber-50/70 via-transparent to-transparent" />
 

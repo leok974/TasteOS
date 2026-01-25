@@ -388,9 +388,17 @@ function CookModeOverlay({
                                         onTimerAction={(timerId, action) => {
                                             onTimerAction?.(timerId, action);
                                         }}
+                                        onSessionEnd={onSessionEnd}
                                     />
                                 </CardContent>
                             </Card>
+
+                            {/* Sticky Cooking Assist Button */}
+                            {open && (
+                                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[125] shadow-2xl">
+                                    <AssistPanel recipeId={recipe.id} stepIndex={stepIdx} />
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -701,7 +709,7 @@ export default function RecipeDetailPage() {
             { sessionId: session.id, action },
             {
                 onSuccess: () => {
-                    setCookModeOpen(false);
+                    setCookOpen(false);
                 },
             }
         );

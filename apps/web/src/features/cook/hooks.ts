@@ -67,9 +67,16 @@ export function useCookSessionActive(recipeId?: string) {
         queryKey: ["cook-session", "active", recipeId],
         queryFn: async () => {
             if (!recipeId) return null;
-            return cookFetch<CookSession>(
-                `/cook/session/active?recipe_id=${recipeId}`
-            );
+            try {
+                return await cookFetch<CookSession>(
+                    `/cook/session/active?recipe_id=${recipeId}`
+                );
+            } catch (error: any) {
+                if (error.message.includes('404')) {
+                    return null;
+                }
+                throw error;
+            }
         },
         enabled: !!recipeId,
         retry: false, // Don't retry 404s

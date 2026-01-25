@@ -26,7 +26,13 @@ class Settings(BaseSettings):
     object_public_base_url: str = "http://localhost:9000/tasteos-images"
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://0.0.0.0:3000",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
 
 
 settings = Settings()

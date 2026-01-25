@@ -651,7 +651,7 @@ export default function RecipeDetailPage() {
             sessionStarted.current = true;
             startSessionMutation.mutate(recipeId);
         }
-    }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation]);
+    }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation.mutate]);
 
     // Reset session started flag when cook mode closes
     useEffect(() => {

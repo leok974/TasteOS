@@ -200,6 +200,7 @@ def patch_session(
             "label": t.label,
             "duration_sec": t.duration_sec,
             "started_at": None,
+            "elapsed_sec": 0,  # Track elapsed time for pause/resume
             "state": "created"
         }
         from sqlalchemy.orm.attributes import flag_modified
@@ -214,10 +215,21 @@ def patch_session(
         timer = session.timers[a.timer_id]
         
         if a.action == "start":
+            # Starting from paused or created state
             timer["state"] = "running"
             timer["started_at"] = datetime.utcnow().isoformat()
+            # Keep existing elapsed_sec if resuming from pause
+            if "elapsed_sec" not in timer:
+                timer["elapsed_sec"] = 0
         elif a.action == "pause":
+            # Calculate elapsed time and store it
+            if timer.get("started_at"):
+                started = datetime.fromisoformat(timer["started_at"].replace('Z', '+00:00'))
+                elapsed = (datetime.utcnow() - started).total_seconds()
+                current_elapsed = timer.get("elapsed_sec", 0)
+                timer["elapsed_sec"] = int(current_elapsed + elapsed)
             timer["state"] = "paused"
+            timer["started_at"] = None  # Clear started_at on pause
         elif a.action == "done":
             timer["state"] = "done"
         elif a.action == "delete":
@@ -228,6 +240,7 @@ def patch_session(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "timers")
         logger.info(f"Timer {a.timer_id} action: {a.action}")
+
     
     session.updated_at = datetime.utcnow()
     db.commit()

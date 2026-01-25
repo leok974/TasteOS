@@ -37,8 +37,13 @@ function TimerCard({
     useEffect(() => {
         if (timer.state === 'running' && timer.started_at) {
             const interval = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - new Date(timer.started_at!).getTime()) / 1000);
-                const newRemaining = Math.max(0, timer.duration_sec - elapsed);
+                const now = Date.now();
+                const startedMs = new Date(timer.started_at!).getTime();
+                const currentElapsed = Math.floor((now - startedMs) / 1000);
+
+                // Add previously elapsed time (from pauses)
+                const totalElapsed = (timer.elapsed_sec || 0) + currentElapsed;
+                const newRemaining = Math.max(0, timer.duration_sec - totalElapsed);
                 setRemaining(newRemaining);
 
                 // Auto-mark done when timer expires
@@ -50,10 +55,15 @@ function TimerCard({
             return () => clearInterval(interval);
         } else if (timer.state === 'done') {
             setRemaining(0);
+        } else if (timer.state === 'paused') {
+            // Show remaining time at pause
+            const totalElapsed = timer.elapsed_sec || 0;
+            setRemaining(Math.max(0, timer.duration_sec - totalElapsed));
         } else {
+            // For created state, show full duration
             setRemaining(timer.duration_sec);
         }
-    }, [timer.state, timer.started_at, timer.duration_sec, onAction]);
+    }, [timer.state, timer.started_at, timer.duration_sec, timer.elapsed_sec, onAction]);
 
     const stateColors = {
         created: 'bg-stone-100 text-stone-600',

@@ -51,6 +51,7 @@ export interface CookTimer {
     label: string;
     duration_sec: number;
     started_at?: string | null;
+    elapsed_sec?: number; // Total elapsed time (for pause/resume)
     state: "created" | "running" | "paused" | "done";
 }
 

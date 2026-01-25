@@ -31,13 +31,8 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
     const assistMutation = useCookAssist();
 
     const handleSubstitute = () => {
-        console.log('[AssistPanel] handleSubstitute called', { ingredient });
-        if (!ingredient.trim()) {
-            console.log('[AssistPanel] No ingredient, returning');
-            return;
-        }
+        if (!ingredient.trim()) return;
 
-        console.log('[AssistPanel] Calling substitute mutation');
         assistMutation.mutate(
             {
                 recipe_id: recipeId,
@@ -46,19 +41,12 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
                 payload: { ingredient: ingredient.trim() },
             },
             {
-                onSuccess: (data) => {
-                    console.log('[AssistPanel] Substitute success:', data);
-                    setResult(data);
-                },
-                onError: (error) => {
-                    console.error('[AssistPanel] Substitute error:', error);
-                }
+                onSuccess: (data) => setResult(data),
             }
         );
     };
 
     const handleMacros = () => {
-        console.log('[AssistPanel] handleMacros called');
         assistMutation.mutate(
             {
                 recipe_id: recipeId,
@@ -67,19 +55,12 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
                 payload: {},
             },
             {
-                onSuccess: (data) => {
-                    console.log('[AssistPanel] Macros success:', data);
-                    setResult(data);
-                },
-                onError: (error) => {
-                    console.error('[AssistPanel] Macros error:', error);
-                }
+                onSuccess: (data) => setResult(data),
             }
         );
     };
 
     const handleFix = (problem: string) => {
-        console.log('[AssistPanel] handleFix called', { problem });
         assistMutation.mutate(
             {
                 recipe_id: recipeId,
@@ -94,16 +75,12 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
     };
 
     return (
-        <Sheet open={open} onOpenChange={(newOpen) => {
-            console.log('[AssistPanel] Sheet state changing:', { from: open, to: newOpen });
-            setOpen(newOpen);
-        }}>
+        <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
                 <Button
                     variant="outline"
                     className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60"
                     data-testid="assist-open"
-                    onClick={() => console.log('[AssistPanel] Button clicked')}
                 >
                     <Sparkles className="h-4 w-4 mr-2" />
                     Cooking Assist

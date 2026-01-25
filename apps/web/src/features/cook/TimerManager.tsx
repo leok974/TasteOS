@@ -35,15 +35,6 @@ function TimerCard({
     const [remaining, setRemaining] = useState(timer.duration_sec);
 
     useEffect(() => {
-        console.log('[TimerCard] Timer update:', {
-            timerId,
-            state: timer.state,
-            duration_sec: timer.duration_sec,
-            elapsed_sec: timer.elapsed_sec,
-            started_at: timer.started_at,
-            label: timer.label
-        });
-
         if (timer.state === 'running' && timer.started_at) {
             const interval = setInterval(() => {
                 const now = Date.now();
@@ -53,14 +44,6 @@ function TimerCard({
                 // Add previously elapsed time (from pauses)
                 const totalElapsed = (timer.elapsed_sec || 0) + currentElapsed;
                 const newRemaining = Math.max(0, timer.duration_sec - totalElapsed);
-
-                console.log('[TimerCard] Running:', {
-                    currentElapsed,
-                    elapsed_sec: timer.elapsed_sec,
-                    totalElapsed,
-                    duration_sec: timer.duration_sec,
-                    newRemaining
-                });
 
                 setRemaining(newRemaining);
 
@@ -77,11 +60,9 @@ function TimerCard({
             // Show remaining time at pause
             const totalElapsed = timer.elapsed_sec || 0;
             const pausedRemaining = Math.max(0, timer.duration_sec - totalElapsed);
-            console.log('[TimerCard] Paused remaining:', pausedRemaining);
             setRemaining(pausedRemaining);
         } else {
             // For created state, show full duration
-            console.log('[TimerCard] Created, showing full duration:', timer.duration_sec);
             setRemaining(timer.duration_sec);
         }
     }, [timer.state, timer.started_at, timer.duration_sec, timer.elapsed_sec, onAction, timerId]);
@@ -216,7 +197,6 @@ export function TimerManager({ stepIndex, timers, onTimerCreate, onTimerAction }
                                 variant="outline"
                                 className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60 font-semibold"
                                 onClick={() => {
-                                    console.log('[TimerManager] Creating timer:', preset);
                                     onTimerCreate(preset.label, preset.seconds);
                                     setShowPresets(false);
                                 }}

@@ -673,14 +673,6 @@ export default function RecipeDetailPage() {
 
     // Auto-start session when cook mode opens
     useEffect(() => {
-        console.log('[CookMode] Auto-start check:', {
-            wantCook: wantCookRef.current,
-            open: cookOpen,
-            loading: sessionLoading,
-            hasSession: !!session,
-            guard: startGuardRef.current
-        });
-
         // Only run when the user actually wants to cook
         if (!wantCookRef.current) return;
         if (!cookOpen) return;
@@ -695,7 +687,6 @@ export default function RecipeDetailPage() {
         if (startGuardRef.current) return;
         startGuardRef.current = true;
 
-        console.log('[CookMode] Starting session...');
         startSessionMutation.mutate(recipeId, {
             onError: (e) => {
                 console.error('[CookMode] Start failed:', e);

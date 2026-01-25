@@ -249,7 +249,8 @@ function CookModeOverlay({
     const handleComplete = async () => {
         // Trigger celebration confetti
         // Dynamic import to avoid SSR/Build resolution issues
-        const confettiModule = await import('canvas-confetti');
+        // Vendored locally to fix module resolution errors in dev
+        const confettiModule = await import('@/lib/confetti.js');
         const confetti = confettiModule.default || confettiModule;
 
         const end = Date.now() + 1000;

@@ -109,17 +109,19 @@ services:
   web:
     build:
       context: ..
-      dockerfile: apps/web/Dockerfile
+      dockerfile: apps/web/Dockerfile.dev
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+      - NODE_ENV=development
+      - NODE_OPTIONS=--max-old-space-size=4096
     ports:
       - "3000:3000"
     depends_on:
-      api:
-        condition: service_started
+      - api
     volumes:
       - ../apps/web:/app/apps/web
+      - ../package.json:/app/package.json
       - /app/apps/web/node_modules
+      - /app/apps/web/.next
 
 volumes:
   tasteos_pg:

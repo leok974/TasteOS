@@ -442,6 +442,9 @@ class CookSession(Base):
     steps_override: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
     method_tradeoffs: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     method_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Adjust On The Fly
+    adjustments_log: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, server_default='[]')
 
     workspace: Mapped["Workspace"] = relationship()
 

@@ -248,6 +248,9 @@ class SessionResponse(BaseModel):
     steps_override: Optional[list[dict]] = None
     method_tradeoffs: Optional[dict] = None
     method_generated_at: Optional[datetime] = None
+    
+    # Adjust On The Fly
+    adjustments_log: list[dict] = []
 
     class Config:
         from_attributes = True
@@ -283,3 +286,32 @@ class MethodPreviewResponse(BaseModel):
     tradeoffs: dict
     steps_preview: list[dict]
     diff: Optional[dict] = None
+
+# --- Cook Adjust Adjust-on-the-fly ---
+
+class CookAdjustment(BaseModel):
+    id: str
+    step_index: int
+    kind: str
+    title: str
+    bullets: list[str]
+    warnings: list[str] = []
+    confidence: float
+    source: str # rules | ai | mixed
+
+class AdjustPreviewRequest(BaseModel):
+    step_index: int
+    bullet_index: Optional[int] = None
+    kind: str
+    context: Optional[dict] = None
+
+class AdjustPreviewResponse(BaseModel):
+    adjustment: CookAdjustment
+    steps_preview: list[dict]
+    diff: dict
+
+class AdjustApplyRequest(BaseModel):
+    adjustment_id: str
+    step_index: int
+    steps_override: list[dict]
+    adjustment: CookAdjustment

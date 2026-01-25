@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { TimerManager } from '@/features/cook/TimerManager';
 import { AssistPanel } from '@/features/cook/AssistPanel';
+import { AdjustButtons } from '@/features/cook/AdjustButtons';
 
 // Convert API step to CookStep format
 interface CookStep {
@@ -236,6 +237,7 @@ function CookTimelineItem({
     onSelect,
     checks,
     onToggle,
+    sessionId,
 }: {
     step: CookStep;
     index: number;
@@ -245,6 +247,7 @@ function CookTimelineItem({
     onSelect: () => void;
     checks: Record<string, boolean>;
     onToggle: (key: string) => void;
+    sessionId?: string | null;
 }) {
     return (
         <div className="grid grid-cols-[28px_1fr] gap-4">
@@ -277,6 +280,12 @@ function CookTimelineItem({
                     showIndex={false}
                     showBadge={false}
                 />
+                
+                {isActive && sessionId && (
+                    <div className="fade-in zoom-in slide-in-from-top-1 animate-in duration-300">
+                        <AdjustButtons sessionId={sessionId} stepIndex={index} />
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -539,6 +548,7 @@ function CookModeOverlay({
                                             onSelect={() => setStepIdx(i)}
                                             checks={checks}
                                             onToggle={onToggle}
+                                            sessionId={session?.id}
                                         />
                                     );
                                 })}

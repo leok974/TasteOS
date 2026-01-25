@@ -12,7 +12,7 @@ import logging
 import asyncio
 import queue
 import json
-from typing import Optional
+from typing import Optional, List
 from collections import defaultdict
 from datetime import datetime
 
@@ -29,9 +29,11 @@ from ..deps import get_workspace
 from ..models import Workspace, CookSession, Recipe
 from ..services.ai_service import ai_service
 from ..services.variant_generator import variant_generator
+from ..services.cook_adjustments import generate_adjustment
 from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
-    SessionResponse, SessionPatchRequest
+    SessionResponse, SessionPatchRequest,
+    AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -42,10 +44,10 @@ logger = logging.getLogger("tasteos.cook")
 # session_id -> list of queues
 _session_listeners: dict[str, list[queue.Queue]] = defaultdict(list)
 
-def _notify_session_update(session: CookSession):
+def notify_session_update(session: CookSession):
     """Publish session update to all active listeners."""
     try:
-        data = _session_to_response(session).model_dump(mode='json')
+        data = session_to_response(session).model_dump(mode='json')
         msg = f"event: session\ndata: {json.dumps(data)}\n\n"
         
         listeners = _session_listeners.get(session.id, [])
@@ -121,7 +123,7 @@ def start_session(
     
     if existing:
         logger.info(f"Returning existing session {existing.id}")
-        return _session_to_response(existing)
+        return session_to_response(existing)
     
     # Verify recipe exists in workspace
     recipe = db.scalar(
@@ -150,7 +152,7 @@ def start_session(
     db.refresh(session)
     
     logger.info(f"Created new cook session {session.id} for recipe {request.recipe_id}")
-    return _session_to_response(session)
+    return session_to_response(session)
 
 
 @router.get("/session/active", response_model=SessionResponse)
@@ -172,8 +174,7 @@ def get_active_session(
     if not session:
         raise HTTPException(status_code=404, detail="No active session found")
     
-    return _session_to_response(session)
-
+    return session_to_response(session)
 
 @router.patch("/session/{session_id}", response_model=SessionResponse)
 def patch_session(
@@ -278,8 +279,8 @@ def patch_session(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 @router.patch("/session/{session_id}/end", response_model=SessionResponse)
@@ -313,9 +314,9 @@ def end_session(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
+    notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
-    return _session_to_response(session)
+    return session_to_response(session)
 
 
 @router.post("/assist", response_model=AssistResponse)
@@ -569,8 +570,8 @@ def apply_method_variant(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 @router.post("/session/{session_id}/method/reset", response_model=SessionResponse)
@@ -601,13 +602,147 @@ def reset_method_variant(
     db.commit()
     db.refresh(session)
     
-    _notify_session_update(session)
-    return _session_to_response(session)
+    notify_session_update(session)
+    return session_to_response(session)
+
+
+# --- Adjust On The Fly Endpoints ---
+
+@router.post("/session/{session_id}/adjust/preview", response_model=AdjustPreviewResponse)
+def preview_adjustment(
+    session_id: str,
+    request: AdjustPreviewRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Preview a step adjustment."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Get current steps
+    # If session.steps_override exists, use it. Else fetch recipe steps.
+    current_steps = []
+    if session.steps_override:
+        current_steps = session.steps_override
+    else:
+        # Fetch from recipe
+        recipe = db.scalar(
+            select(Recipe).where(Recipe.id == session.recipe_id)
+        )
+        if not recipe:
+             raise HTTPException(status_code=404, detail="Recipe not found")
+        # Convert ORM steps to dicts
+        current_steps = [
+            {
+                "step_index": s.step_index,
+                "title": s.title,
+                "bullets": s.bullets,
+                "minutes_est": s.minutes_est
+            }
+            for s in sorted(recipe.steps, key=lambda x: x.step_index)
+        ]
+
+    # Find target step
+    original_step = None
+    target_idx = -1
+    for i, s in enumerate(current_steps):
+        if s["step_index"] == request.step_index:
+            original_step = s
+            target_idx = i
+            break
+            
+    if not original_step:
+        raise HTTPException(status_code=404, detail=f"Step {request.step_index} not found")
+
+    # Generate Adjustment
+    adjustment = generate_adjustment(
+        session_method_key=session.method_key,
+        step_index=request.step_index,
+        original_step=original_step,
+        kind=request.kind,
+        context=request.context
+    )
+
+    # Create preview steps (copy)
+    steps_preview = [s.copy() for s in current_steps]
+    
+    # Modify the target step
+    new_step = steps_preview[target_idx].copy()
+    new_step["title"] = adjustment.title
+    new_step["bullets"] = adjustment.bullets
+    
+    if adjustment.warnings:
+         new_step["bullets"] = new_step["bullets"] + [f"⚠️ {w}" for w in adjustment.warnings]
+
+    steps_preview[target_idx] = new_step
+
+    return AdjustPreviewResponse(
+        adjustment=adjustment,
+        steps_preview=steps_preview,
+        diff={
+            "step_index": request.step_index,
+            "changed_fields": ["title", "bullets"],
+            "before": {
+                "title": original_step.get("title", ""),
+                "bullets": original_step.get("bullets", [])
+            },
+            "after": {
+                "title": new_step["title"],
+                "bullets": new_step["bullets"]
+            }
+        }
+    )
+
+@router.post("/session/{session_id}/adjust/apply", response_model=SessionResponse)
+def apply_adjustment(
+    session_id: str,
+    request: AdjustApplyRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Apply a step adjustment permanently to the session."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    session.steps_override = request.steps_override
+    
+    # Append to log
+    # request.adjustment is a Pydantic model CookAdjustment
+    log_entry = request.adjustment.model_dump(mode='json')
+    log_entry["applied_at"] = datetime.utcnow().isoformat()
+    
+    if not session.adjustments_log:
+        session.adjustments_log = []
+        
+    session.adjustments_log.append(log_entry)
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "adjustments_log")
+    flag_modified(session, "steps_override")
+    
+    session.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    
+    notify_session_update(session)
+    return session_to_response(session)
 
 
 # --- Helpers ---
 
-def _session_to_response(session: CookSession) -> SessionResponse:
+def session_to_response(session: CookSession) -> SessionResponse:
     return SessionResponse(
         id=session.id,
         recipe_id=session.recipe_id,
@@ -622,6 +757,7 @@ def _session_to_response(session: CookSession) -> SessionResponse:
         steps_override=session.steps_override,
         method_tradeoffs=session.method_tradeoffs,
         method_generated_at=session.method_generated_at,
+        adjustments_log=session.adjustments_log or [],
     )
 
 def _confidence_to_float(conf_str: str) -> float:

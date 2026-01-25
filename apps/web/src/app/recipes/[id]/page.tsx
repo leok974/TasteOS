@@ -644,6 +644,8 @@ export default function RecipeDetailPage() {
     // Start Cooking Handler
     const handleStartCooking = () => {
         wantCookRef.current = true;
+        // Ensure we don't have stale "no session" or "old session" data
+        queryClient.removeQueries({ queryKey: ['cook-session', 'active', recipeId] });
         setCookOpen(true);
     };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import confetti from "canvas-confetti";
 import { useParams, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -244,6 +245,38 @@ function CookModeOverlay({
 }) {
     console.log('[CookModeOverlay] Render:', { open, stepIdx });
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+    const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+
+    const handleComplete = () => {
+        // Trigger celebration confetti
+        const end = Date.now() + 1000;
+        const colors = ['#f59e0b', '#d97706', '#fbbf24']; // Amber/Gold scheme
+
+        (function frame() {
+            confetti({
+                particleCount: 3,
+                angle: 60,
+                spread: 55,
+                origin: { x: 0 },
+                colors: colors
+            });
+            confetti({
+                particleCount: 3,
+                angle: 120,
+                spread: 55,
+                origin: { x: 1 },
+                colors: colors
+            });
+
+            if (Date.now() < end) {
+                requestAnimationFrame(frame);
+            }
+        }());
+
+        // Complete session
+        onSessionEnd?.('complete');
+        setShowCompleteConfirm(false);
+    };
     const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
 
     return (
@@ -303,7 +336,7 @@ function CookModeOverlay({
                                 <Button
                                     size="sm"
                                     className="h-9 rounded-xl bg-green-600 hover:bg-green-700"
-                                    onClick={() => onSessionEnd?.('complete')}
+                                    onClick={() => setShowCompleteConfirm(true)}
                                 >
                                     <Check className="h-4 w-4 mr-1" />
                                     Complete
@@ -461,6 +494,27 @@ function CookModeOverlay({
                                     setShowAbandonConfirm(false);
                                 }}>
                                     Abandon Session
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+
+                    {/* Completion Confirmation Dialog */}
+                    <AlertDialog open={showCompleteConfirm} onOpenChange={setShowCompleteConfirm}>
+                        <AlertDialogContent className="z-[130]">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle className="text-center font-serif text-2xl text-amber-900">Bon Appétit!</AlertDialogTitle>
+                                <AlertDialogDescription className="text-center">
+                                    Congratulations on finishing your meal! Would you like to mark this session as complete?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="sm:justify-center gap-2">
+                                <AlertDialogCancel className="rounded-xl">Keep Cooking</AlertDialogCancel>
+                                <AlertDialogAction
+                                    className="bg-green-600 hover:bg-green-700 text-white rounded-xl px-8"
+                                    onClick={handleComplete}
+                                >
+                                    Yes, Complete!
                                 </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>

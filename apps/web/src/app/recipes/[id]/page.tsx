@@ -197,13 +197,7 @@ function CookTimelineItem({
                 </button>
             </div>
 
-            <div
-                role="button"
-                tabIndex={0}
-                onClick={onSelect}
-                onKeyDown={(e) => e.key === 'Enter' && onSelect()}
-                className="text-left cursor-pointer"
-            >
+            <div className="text-left">
                 <StepCard
                     step={step}
                     index={index}

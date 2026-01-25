@@ -151,7 +151,7 @@ function TimerCard({
             </div>
 
             <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-                <AlertDialogContent>
+                <AlertDialogContent className="z-[130]">
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete Timer?</AlertDialogTitle>
                         <AlertDialogDescription>

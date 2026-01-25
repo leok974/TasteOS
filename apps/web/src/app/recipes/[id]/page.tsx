@@ -426,7 +426,7 @@ function CookModeOverlay({
 
                     {/* Abandon Confirmation Dialog */}
                     <AlertDialog open={showAbandonConfirm} onOpenChange={setShowAbandonConfirm}>
-                        <AlertDialogContent>
+                        <AlertDialogContent className="z-[130]">
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Abandon Cooking Session?</AlertDialogTitle>
                                 <AlertDialogDescription>

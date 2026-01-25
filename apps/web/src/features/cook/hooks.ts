@@ -5,8 +5,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api";
 
-// Get workspace ID from context (set by WorkspaceProvider)
-let currentWorkspaceId: string | null = null;
 // Helper function for API calls with workspace headers
 async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const headers = new Headers(options?.headers);
@@ -17,26 +15,14 @@ async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
         ? localStorage.getItem('tasteos.workspace_id')
         : null;
 
+    // Add workspace header if available
     if (workspaceId) {
         headers.set('X-Workspace-Id', workspaceId);
     }
 
-    console.log('[cookFetch] Request:', {
-        url: `${API_BASE}${url}`,
-        method: options?.method || 'GET',
-        workspaceId,
-        hasBody: !!options?.body
-    });
-
     const response = await fetch(`${API_BASE}${url}`, {
         ...options,
         headers,
-    });
-
-    console.log('[cookFetch] Response:', {
-        status: response.status,
-        ok: response.ok,
-        url: response.url
     });
 
     if (!response.ok) {
@@ -45,15 +31,49 @@ async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
     return response.json();
 }
-if (!recipeId) return null;
-return cookFetch<CookSession>(
-    `/cook/session/active?recipe_id=${recipeId}`
-);
-            },
-enabled: !!recipeId,
-    retry: false, // Don't retry 404s
-        });
-    }
+
+// Types matching backend responses
+export interface CookSession {
+    id: string;
+    recipe_id: string;
+    status: "active" | "completed" | "abandoned";
+    started_at: string;
+    current_step_index: number;
+    step_checks: Record<string, Record<string, boolean>>; // {stepIndex: {bulletIndex: checked}}
+    timers: Record<string, CookTimer>;
+}
+
+export interface CookTimer {
+    step_index: number;
+    bullet_index?: number | null;
+    label: string;
+    duration_sec: number;
+    started_at?: string | null;
+    elapsed_sec?: number; // Total elapsed time (for pause/resume)
+    state: "created" | "running" | "paused" | "done";
+}
+
+export interface AssistResponse {
+    title: string;
+    bullets: string[];
+    confidence?: number;
+    source: "rules" | "ai" | "mixed";
+}
+
+// Hook: Get active cook session for a recipe
+export function useCookSessionActive(recipeId?: string) {
+    return useQuery({
+        queryKey: ["cook-session", "active", recipeId],
+        queryFn: async () => {
+            if (!recipeId) return null;
+            return cookFetch<CookSession>(
+                `/cook/session/active?recipe_id=${recipeId}`
+            );
+        },
+        enabled: !!recipeId,
+        retry: false, // Don't retry 404s
+    });
+}
 
 // Hook: Start a new cook session
 export function useCookSessionStart() {

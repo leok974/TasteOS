@@ -700,7 +700,12 @@ export default function RecipeDetailPage() {
 
         setStepIdx(newStepIdx);
         if (session) {
-            patchSessionMutation.mutate({ current_step_index: newStepIdx });
+            patchSessionMutation.mutate({
+                sessionId: session.id, // Pass sessionId
+                patch: {
+                    current_step_index: newStepIdx
+                }
+            });
         }
     };
 
@@ -722,11 +727,14 @@ export default function RecipeDetailPage() {
 
         if (session) {
             patchSessionMutation.mutate({
-                step_checks_patch: {
-                    step_index: stepIndex,
-                    bullet_index: bulletIndex,
-                    checked,
-                },
+                sessionId: session.id, // Pass sessionId
+                patch: {
+                    step_checks_patch: {
+                        step_index: stepIndex,
+                        bullet_index: bulletIndex,
+                        checked,
+                    },
+                }
             });
         }
     };
@@ -804,19 +812,25 @@ export default function RecipeDetailPage() {
                 onTimerCreate={(label, durationSec) => {
                     if (session) {
                         patchSessionMutation.mutate({
-                            timer_create: {
-                                step_index: stepIdx,
-                                bullet_index: null,
-                                label,
-                                duration_sec: durationSec,
-                            },
+                            sessionId: session.id, // Pass sessionId
+                            patch: {
+                                timer_create: {
+                                    step_index: stepIdx,
+                                    bullet_index: null,
+                                    label,
+                                    duration_sec: durationSec,
+                                },
+                            }
                         });
                     }
                 }}
                 onTimerAction={(timerId, action) => {
                     if (session) {
                         patchSessionMutation.mutate({
-                            timer_action: { timer_id: timerId, action },
+                            sessionId: session.id, // Pass sessionId
+                            patch: {
+                                timer_action: { timer_id: timerId, action },
+                            }
                         });
                     }
                 }}

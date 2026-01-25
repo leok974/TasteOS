@@ -104,27 +104,30 @@ export function useCookSessionStart() {
 }
 
 // Hook: Update cook session
-export function useCookSessionPatch(sessionId?: string) {
+export function useCookSessionPatch() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async (patch: {
-            current_step_index?: number;
-            step_checks_patch?: {
-                step_index: number;
-                bullet_index: number;
-                checked: boolean;
-            };
-            timer_create?: {
-                step_index: number;
-                bullet_index?: number | null;
-                label: string;
-                duration_sec: number;
-            };
-            timer_action?: {
-                timer_id: string;
-                action: "start" | "pause" | "done" | "delete";
-            };
+        mutationFn: async ({ sessionId, patch }: {
+            sessionId: string;
+            patch: {
+                current_step_index?: number;
+                step_checks_patch?: {
+                    step_index: number;
+                    bullet_index: number;
+                    checked: boolean;
+                };
+                timer_create?: {
+                    step_index: number;
+                    bullet_index?: number | null;
+                    label: string;
+                    duration_sec: number;
+                };
+                timer_action?: {
+                    timer_id: string;
+                    action: "start" | "pause" | "done" | "delete";
+                };
+            }
         }) => {
             if (!sessionId) throw new Error("Session ID required");
             return cookFetch<CookSession>(`/cook/session/${sessionId}`, {
@@ -139,6 +142,9 @@ export function useCookSessionPatch(sessionId?: string) {
                 data
             );
         },
+        onError: (error) => {
+            console.error("[CookSessionPatch] Mutation failed:", error);
+        }
     });
 }
 

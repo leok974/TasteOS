@@ -757,6 +757,9 @@ export default function RecipeDetailPage() {
                 onSuccess: () => {
                     console.log('[CookMode] Session end success, closing cook mode');
                     setCookOpen(false);
+                    setStepIdx(0); // Reset local step index
+                    // Invalidate active session query so next time it fetches fresh (or null)
+                    queryClient.invalidateQueries({ queryKey: ['cook-session', 'active', recipeId] });
                 },
                 onError: (e) => {
                     console.error('[CookMode] Session end failed:', e);

@@ -639,13 +639,22 @@ export default function RecipeDetailPage() {
     const patchSessionMutation = useCookSessionPatch();
     const endSessionMutation = useCookSessionEnd();
     const startGuardRef = useRef(false);
+    const wantCookRef = useRef(false); // User intent: wants cook mode open
+
+    // Start Cooking Handler
+    const handleStartCooking = () => {
+        wantCookRef.current = true;
+        setCookOpen(true);
+    };
 
     // Auto-start session when cook mode opens
     useEffect(() => {
+        // Only run when the user actually wants to cook
+        if (!wantCookRef.current) return;
         if (!cookOpen) return;
         if (sessionLoading) return;
 
-        // If we already have a session, we're done.
+        // If we already have a session, stop.
         if (session) {
             return;
         }
@@ -658,6 +667,9 @@ export default function RecipeDetailPage() {
         startSessionMutation.mutate(recipeId, {
             onError: () => {
                 startGuardRef.current = false;
+            },
+            onSettled: () => {
+                startGuardRef.current = false;
             }
         });
     }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation]);
@@ -666,6 +678,7 @@ export default function RecipeDetailPage() {
     useEffect(() => {
         if (!cookOpen) {
             startGuardRef.current = false;
+            // potential: wantCookRef.current = false; // logic handled in abandon
         }
     }, [cookOpen]);
 
@@ -721,8 +734,12 @@ export default function RecipeDetailPage() {
     // Handle session end
     const handleSessionEnd = (action: 'complete' | 'abandon') => {
         console.log('[CookMode] handleSessionEnd called:', action);
+        // User explicitly ending session -> Clear intent
+        wantCookRef.current = false;
+
         if (!session) {
             console.log('[CookMode] No session active, ignoring');
+            setCookOpen(false);
             return;
         }
         console.log('[CookMode] Mutating session end...', session.id);
@@ -735,6 +752,8 @@ export default function RecipeDetailPage() {
                 },
                 onError: (e) => {
                     console.error('[CookMode] Session end failed:', e);
+                    // Force close anyway on abandon error to prevent getting stuck
+                    if (action === 'abandon') setCookOpen(false);
                 }
             }
         );

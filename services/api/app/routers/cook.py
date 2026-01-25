@@ -14,7 +14,7 @@ import queue
 import json
 from typing import Optional, List
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -30,6 +30,7 @@ from ..models import Workspace, CookSession, Recipe
 from ..services.ai_service import ai_service
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
+from ..services.auto_step import calculate_auto_step
 from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
     SessionResponse, SessionPatchRequest,
@@ -195,22 +196,36 @@ def patch_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
+    now = datetime.now(timezone.utc)
+    interaction_occurred = False
+    interaction_step_index = None
+
+    # Handle Auto Step Config
+    if patch.auto_step_enabled is not None:
+        session.auto_step_enabled = patch.auto_step_enabled
+    if patch.auto_step_mode is not None:
+        session.auto_step_mode = patch.auto_step_mode
+
     # Apply patches
     if patch.servings_target is not None:
         session.servings_target = patch.servings_target
 
     if patch.current_step_index is not None:
         session.current_step_index = patch.current_step_index
+        # Manual navigation override
+        session.manual_override_until = now + timedelta(minutes=3)
+        interaction_occurred = True
+        interaction_step_index = patch.current_step_index
     
     if patch.step_checks_patch:
         p = patch.step_checks_patch
-        step_key = str(p.step_index)
-        bullet_key = str(p.bullet_index)
+        step_key = str(p.get('step_index'))
+        bullet_key = str(p.get('bullet_index'))
         
         if step_key not in session.step_checks:
             session.step_checks[step_key] = {}
         
-        if p.checked:
+        if p.get('checked'):
             session.step_checks[step_key][bullet_key] = True
         else:
             session.step_checks[step_key].pop(bullet_key, None)
@@ -218,15 +233,18 @@ def patch_session(
         # Mark as modified for JSONB update
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "step_checks")
+        
+        interaction_occurred = True
+        interaction_step_index = p.get('step_index')
     
     if patch.timer_create:
         t = patch.timer_create
         timer_id = uuid.uuid4().hex
         session.timers[timer_id] = {
-            "step_index": t.step_index,
-            "bullet_index": t.bullet_index,
-            "label": t.label,
-            "duration_sec": t.duration_sec,
+            "step_index": t.get('step_index'),
+            "bullet_index": t.get('bullet_index'),
+            "label": t.get('label'),
+            "duration_sec": t.get('duration_sec'),
             "started_at": None,
             "elapsed_sec": 0,  # Track elapsed time for pause/resume
             "paused_at": None,  # NEW: Track when timer was paused
@@ -235,15 +253,21 @@ def patch_session(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "timers")
         logger.info(f"Created timer {timer_id} in session {session_id}")
+        
+        interaction_occurred = True
+        interaction_step_index = t.get('step_index')
     
     if patch.timer_action:
         a = patch.timer_action
-        if a.timer_id not in session.timers:
+        a_timer_id = a.get('timer_id')
+        a_action = a.get('action')
+        
+        if a_timer_id not in session.timers:
             raise HTTPException(status_code=404, detail="Timer not found")
         
-        timer = session.timers[a.timer_id]
+        timer = session.timers[a_timer_id]
         
-        if a.action == "start":
+        if a_action == "start":
             # Starting from paused or created state
             timer["state"] = "running"
             timer["started_at"] = datetime.utcnow().isoformat() + "Z"  # Add Z for UTC
@@ -251,31 +275,42 @@ def patch_session(
             # Keep existing elapsed_sec if resuming from pause
             if "elapsed_sec" not in timer:
                 timer["elapsed_sec"] = 0
-        elif a.action == "pause":
+        elif a_action == "pause":
             # Calculate elapsed time and store it
             if timer.get("started_at"):
                 started = datetime.fromisoformat(timer["started_at"].replace('Z', '+00:00'))
                 # Make utcnow timezone-aware to match started
-                now = datetime.utcnow().replace(tzinfo=started.tzinfo)
-                elapsed = (now - started).total_seconds()
+                now_tz = datetime.utcnow().replace(tzinfo=started.tzinfo)
+                elapsed = (now_tz - started).total_seconds()
                 current_elapsed = timer.get("elapsed_sec", 0)
                 timer["elapsed_sec"] = int(current_elapsed + elapsed)
             timer["state"] = "paused"
             timer["started_at"] = None  # Clear started_at on pause
             timer["paused_at"] = datetime.utcnow().isoformat() + "Z"  # Store when paused
-        elif a.action == "done":
+        elif a_action == "done":
             timer["state"] = "done"
-        elif a.action == "delete":
-            del session.timers[a.timer_id]
+        elif a_action == "delete":
+            del session.timers[a_timer_id]
         else:
-            raise HTTPException(status_code=400, detail=f"Invalid action: {a.action}")
+            raise HTTPException(status_code=400, detail=f"Invalid action: {a_action}")
         
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(session, "timers")
-        logger.info(f"Timer {a.timer_id} action: {a.action}")
+        logger.info(f"Timer {a_timer_id} action: {a_action}")
 
+        interaction_occurred = True
+        interaction_step_index = timer.get("step_index")
     
-    session.updated_at = datetime.utcnow()
+    # Interaction stats
+    if interaction_occurred:
+        session.last_interaction_at = now
+        if interaction_step_index is not None:
+             session.last_interaction_step_index = interaction_step_index
+             
+    # Auto Step Calculation
+    calculate_auto_step(session, db, now)
+    
+    session.updated_at = now
     db.commit()
     db.refresh(session)
     
@@ -309,8 +344,8 @@ def end_session(
     else:
         raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
     
-    session.ended_at = datetime.utcnow()
-    session.updated_at = datetime.utcnow()
+    session.ended_at = datetime.now(timezone.utc)
+    session.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)
     
@@ -561,7 +596,7 @@ def apply_method_variant(
     session.method_key = body.method_key
     session.steps_override = body.steps_override
     session.method_tradeoffs = body.method_tradeoffs
-    session.method_generated_at = datetime.utcnow()
+    session.method_generated_at = datetime.now(timezone.utc)
     
     # Reset progress as we are back to original steps (or new steps)
     session.current_step_index = 0
@@ -721,7 +756,7 @@ def apply_adjustment(
     # Append to log
     # request.adjustment is a Pydantic model CookAdjustment
     log_entry = request.adjustment.model_dump(mode='json')
-    log_entry["applied_at"] = datetime.utcnow().isoformat()
+    log_entry["applied_at"] = datetime.now(timezone.utc).isoformat()
     
     if not session.adjustments_log:
         session.adjustments_log = []
@@ -731,6 +766,15 @@ def apply_adjustment(
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(session, "adjustments_log")
     flag_modified(session, "steps_override")
+    
+    # Update interaction stats
+    now = datetime.utcnow()
+    session.last_interaction_at = now
+    if "step_index" in log_entry:
+         session.last_interaction_step_index = log_entry["step_index"]
+    
+    # Recalculate auto step
+    calculate_auto_step(session, db, now)
     
     session.updated_at = datetime.utcnow()
     db.commit()
@@ -758,6 +802,13 @@ def session_to_response(session: CookSession) -> SessionResponse:
         method_tradeoffs=session.method_tradeoffs,
         method_generated_at=session.method_generated_at,
         adjustments_log=session.adjustments_log or [],
+        
+        # Auto Step
+        auto_step_enabled=session.auto_step_enabled,
+        auto_step_mode=session.auto_step_mode,
+        auto_step_suggested_index=session.auto_step_suggested_index,
+        auto_step_confidence=session.auto_step_confidence,
+        auto_step_reason=session.auto_step_reason,
     )
 
 def _confidence_to_float(conf_str: str) -> float:

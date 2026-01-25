@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useSWRConfig } from 'swr';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     ArrowLeft,
@@ -56,6 +57,7 @@ import {
 import { TimerManager } from '@/features/cook/TimerManager';
 import { AssistPanel } from '@/features/cook/AssistPanel';
 import { AdjustButtons } from '@/features/cook/AdjustButtons';
+import { apiPatchSession } from '@/lib/api';
 
 // Convert API step to CookStep format
 interface CookStep {
@@ -249,8 +251,17 @@ function CookTimelineItem({
     onToggle: (key: string) => void;
     sessionId?: string | null;
 }) {
+    const itemRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll when active
+    useEffect(() => {
+        if (isActive && itemRef.current) {
+            itemRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, [isActive]);
+
     return (
-        <div className="grid grid-cols-[28px_1fr] gap-4">
+        <div ref={itemRef} className="grid grid-cols-[28px_1fr] gap-4 scroll-mt-24">
             <div className="relative flex justify-center">
                 {!isLast && <div className="absolute top-9 bottom-0 w-px bg-amber-300/70" />}
                 <button
@@ -292,6 +303,33 @@ function CookTimelineItem({
 }
 
 // --- CookModeOverlay Component ---
+type SwitchProps = {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+};
+
+function Switch({ checked, onCheckedChange }: SwitchProps) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onCheckedChange(!checked)}
+            className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2",
+                checked ? "bg-amber-500" : "bg-stone-200"
+            )}
+        >
+            <span
+                className={cn(
+                    "pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
+                    checked ? "translate-x-5" : "translate-x-0"
+                )}
+            />
+        </button>
+    );
+}
+
 function CookModeOverlay({
     open,
     onClose,
@@ -323,10 +361,16 @@ function CookModeOverlay({
     onSessionEnd?: (action: 'complete' | 'abandon') => void;
     onServingsChange?: (target: number) => void;
 }) {
-
+    const { mutate } = useSWRConfig();
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
     const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
+
+    const handleAutoStepToggle = async (enabled: boolean) => {
+        if (!session) return;
+        await apiPatchSession(session.id, { auto_step_enabled: enabled });
+        mutate(`/api/cook/session/${session.id}`);
+    };
 
     // Use overrides if available
     // Use overrides if available and map to CookStep format (backend uses minutes_est)
@@ -431,15 +475,24 @@ function CookModeOverlay({
                                 </Button>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Badge className="rounded-full bg-amber-100/70 text-amber-950 hover:bg-amber-100/70" variant="secondary">
+                                <Badge className="hidden sm:inline-flex rounded-full bg-amber-100/70 text-amber-950 hover:bg-amber-100/70" variant="secondary">
                                     Cook Mode
                                 </Badge>
 
                                 {session && (
-                                    <MethodSwitcher
-                                        sessionId={session.id}
-                                        activeMethodKey={session.method_key}
-                                    />
+                                    <>
+                                        <div className="flex items-center gap-2 rounded-full border border-amber-100/50 bg-white/80 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+                                            <span className="text-xs font-bold uppercase tracking-wider text-stone-500">Auto</span>
+                                            <Switch 
+                                                checked={session.auto_step_enabled} 
+                                                onCheckedChange={handleAutoStepToggle} 
+                                            />
+                                        </div>
+                                        <MethodSwitcher
+                                            sessionId={session.id}
+                                            activeMethodKey={session.method_key}
+                                        />
+                                    </>
                                 )}
 
                                 {/* Servings Control */}
@@ -595,6 +648,33 @@ function CookModeOverlay({
                             )}
                         </div>
                     </div>
+
+                    {/* Auto-Step Suggestion Banner */}
+                    {session?.auto_step_enabled && 
+                     session.auto_step_suggested_index != null && 
+                     session.auto_step_suggested_index !== stepIdx && (
+                        <div className="fixed bottom-[140px] left-0 right-0 z-[140] px-6 animate-in slide-in-from-bottom-2 fade-in">
+                             <div className="mx-auto max-w-2xl">
+                                <button
+                                    onClick={() => setStepIdx(session!.auto_step_suggested_index!)}
+                                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/95 backdrop-blur-sm p-4 shadow-lg active:scale-95 transition-all"
+                                >
+                                    <div className="flex items-center gap-3">
+                                         <Sparkles className="h-5 w-5 text-amber-600 animate-pulse" />
+                                         <div className="text-left">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-900/60">Auto-Detect</p>
+                                            <p className="text-sm font-bold text-amber-900">
+                                                Jump to Step {session!.auto_step_suggested_index! + 1}?
+                                            </p>
+                                         </div>
+                                    </div>
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-200/50 text-amber-800">
+                                        <ChevronRight className="h-5 w-5" />
+                                    </div>
+                                </button>
+                             </div>
+                        </div>
+                    )}
 
                     {/* bottom controls */}
                     <div className="fixed bottom-0 left-0 right-0 z-[130] border-t border-amber-100/60 bg-white/90 px-6 pb-6 pt-4 backdrop-blur-2xl">

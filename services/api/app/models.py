@@ -18,12 +18,14 @@ from sqlalchemy import (
     DateTime,
     Text,
     Integer,
+    Boolean,
+    Float,
     ForeignKey,
     Index,
     ARRAY,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, false
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from .db import Base
@@ -445,6 +447,18 @@ class CookSession(Base):
     
     # Adjust On The Fly
     adjustments_log: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, server_default='[]')
+
+    # Auto Step Detection
+    auto_step_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    auto_step_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="suggest", server_default="suggest")
+    auto_step_suggested_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    auto_step_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    auto_step_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Manual Override Tracking
+    manual_override_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_interaction_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_interaction_step_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     workspace: Mapped["Workspace"] = relationship()
 

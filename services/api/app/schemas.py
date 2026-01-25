@@ -7,7 +7,7 @@ Request/response models for:
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -252,6 +252,13 @@ class SessionResponse(BaseModel):
     # Adjust On The Fly
     adjustments_log: list[dict] = []
 
+    # Auto Step Detection
+    auto_step_enabled: bool = False
+    auto_step_mode: str = "suggest"
+    auto_step_suggested_index: Optional[int] = None
+    auto_step_confidence: Optional[float] = None
+    auto_step_reason: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -262,6 +269,10 @@ class SessionPatchRequest(BaseModel):
     timer_create: Optional[dict] = None
     timer_action: Optional[dict] = None
     servings_target: Optional[int] = Field(None, ge=1)
+    
+    # Auto Step Configuration
+    auto_step_enabled: Optional[bool] = None
+    auto_step_mode: Optional[Literal["suggest", "auto_jump"]] = None
 
 # --- Method Switcher Schemas ---
 

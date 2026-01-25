@@ -73,6 +73,28 @@ type CookStep = {
   tip?: string;
 };
 
+function Switch({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: (c: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2",
+        checked ? "bg-amber-500" : "bg-stone-200"
+      )}
+    >
+      <span
+        className={cn(
+          "pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
+          checked ? "translate-x-5" : "translate-x-0"
+        )}
+      />
+    </button>
+  );
+}
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -717,6 +739,8 @@ function CookModeOverlay({
   setStepIdx,
   checks,
   onToggle,
+  autoStepEnabled,
+  setAutoStepEnabled,
 }: {
   open: boolean;
   onClose: () => void;
@@ -727,6 +751,8 @@ function CookModeOverlay({
   setStepIdx: (n: number) => void;
   checks: Record<string, boolean>;
   onToggle: (key: string) => void;
+  autoStepEnabled: boolean;
+  setAutoStepEnabled: (v: boolean) => void;
 }) {
   const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
 
@@ -748,18 +774,19 @@ function CookModeOverlay({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-2xl border border-amber-100 bg-white/80 p-3 text-stone-700 shadow-sm"
+                className="rounded-2xl border border-amber-100 bg-white/80 p-3 text-stone-700 shadow-sm transition-colors hover:bg-white"
                 aria-label="Exit cook mode"
               >
                 <X className="h-5 w-5" />
               </button>
               <div className="flex items-center gap-2">
-                <Badge className="rounded-full bg-amber-100/70 text-amber-950 hover:bg-amber-100/70" variant="secondary">
-                  Cook Mode
-                </Badge>
-                <Badge className="rounded-full bg-white text-stone-600 hover:bg-white" variant="secondary">
+                <Badge className="hidden rounded-full bg-amber-100/70 text-amber-950 sm:inline-flex" variant="secondary">
                   {method.name}
                 </Badge>
+                <div className="flex items-center gap-2 rounded-full border border-amber-100/50 bg-white/80 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+                  <span className="text-xs font-bold uppercase tracking-wider text-stone-500">Auto</span>
+                  <Switch checked={autoStepEnabled} onCheckedChange={setAutoStepEnabled} />
+                </div>
               </div>
             </div>
 
@@ -984,6 +1011,8 @@ export default function TasteOSPrototypeGeminiStyle() {
     { name: "Half Onion", expiry: "3 days", qty: "1/2", tint: "bg-orange-50" },
   ]);
 
+  const [autoStepEnabled, setAutoStepEnabled] = useState(false);
+
   // --- Derived ---
   const activeMeal = selectedMealType ? dailyMeals[selectedMealType] : null;
 
@@ -1054,6 +1083,8 @@ export default function TasteOSPrototypeGeminiStyle() {
         setStepIdx={setCookStepIdx}
         checks={cookChecks}
         onToggle={toggleCookCheck}
+        autoStepEnabled={autoStepEnabled}
+        setAutoStepEnabled={setAutoStepEnabled}
       />
 
       {/* METHOD SWITCHER SHEET */}

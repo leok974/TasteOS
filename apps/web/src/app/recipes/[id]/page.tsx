@@ -644,28 +644,34 @@ export default function RecipeDetailPage() {
     const startSessionMutation = useCookSessionStart();
     const patchSessionMutation = useCookSessionPatch();
     const endSessionMutation = useCookSessionEnd();
-    const sessionStarted = useRef(false);
+    const startGuardRef = useRef(false);
 
     // Auto-start session when cook mode opens
     useEffect(() => {
-        console.log('[CookMode] Effect check:', {
-            cookOpen,
-            sessionLoading,
-            hasSession: !!session,
-            sessionStarted: sessionStarted.current
-        });
+        if (!cookOpen) return;
+        if (sessionLoading) return;
 
-        if (cookOpen && !sessionLoading && !session && !sessionStarted.current) {
-            console.log('[CookMode] Starting session...');
-            sessionStarted.current = true;
-            startSessionMutation.mutate(recipeId);
+        // If we already have a session, we're done.
+        if (session) {
+            return;
         }
-    }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation.mutate]);
 
-    // Reset session started flag when cook mode closes
+        // Prevent strict-mode double fire
+        if (startGuardRef.current) return;
+        startGuardRef.current = true;
+
+        console.log('[CookMode] Starting session...');
+        startSessionMutation.mutate(recipeId, {
+            onError: () => {
+                startGuardRef.current = false;
+            }
+        });
+    }, [cookOpen, sessionLoading, session, recipeId, startSessionMutation]);
+
+    // Reset guards when cook mode closes
     useEffect(() => {
         if (!cookOpen) {
-            sessionStarted.current = false;
+            startGuardRef.current = false;
         }
     }, [cookOpen]);
 

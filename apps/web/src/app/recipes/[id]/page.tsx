@@ -686,7 +686,11 @@ export default function RecipeDetailPage() {
 
     // Sync step index to session when changed
     const handleStepChange = (newStepIdx: number) => {
-        console.log('[CookMode] handleStepChange:', newStepIdx);
+        console.group('[CookMode] handleStepChange trace');
+        console.log('Value:', newStepIdx);
+        console.trace();
+        console.groupEnd();
+
         setStepIdx(newStepIdx);
         if (session) {
             patchSessionMutation.mutate({ current_step_index: newStepIdx });

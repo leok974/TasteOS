@@ -33,6 +33,40 @@ function formatTime(seconds: number): string {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+function requestNotificationPermission() {
+    if (typeof window !== 'undefined' && "Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission().then(permission => {
+            console.log("Notification permission result:", permission);
+        });
+    }
+}
+
+function playTimerSound() {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+        
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5);
+        
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {
+        console.error("Failed to play timer sound:", e);
+    }
+}
+
 function TimerCard({
     timerId,
     timer,
@@ -44,39 +78,79 @@ function TimerCard({
 }) {
     const [remaining, setRemaining] = useState(timer.duration_sec);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showDoneAlert, setShowDoneAlert] = useState(false);
+
+    const actionRef = useRef(onAction);
 
     useEffect(() => {
-        if (timer.state === 'running' && timer.started_at) {
-            const interval = setInterval(() => {
-                const now = Date.now();
-                const startedMs = new Date(timer.started_at!).getTime();
-                const currentElapsed = Math.floor((now - startedMs) / 1000);
+        actionRef.current = onAction;
+    }, [onAction]);
 
-                // Add previously elapsed time (from pauses)
-                const totalElapsed = (timer.elapsed_sec || 0) + currentElapsed;
-                const newRemaining = Math.max(0, timer.duration_sec - totalElapsed);
-
-                setRemaining(newRemaining);
-
-                // Auto-mark done when timer expires
-                if (newRemaining === 0 && timer.state === 'running') {
-                    onAction('done');
+    useEffect(() => {
+        const calculateRemaining = () => {
+            if (timer.state === 'running') {
+                if (timer.due_at) {
+                    // v9 Logic: Absolute Due Date
+                    const now = Date.now();
+                    const dueMs = new Date(timer.due_at).getTime();
+                    return Math.max(0, Math.ceil((dueMs - now) / 1000));
+                } else if (timer.started_at) {
+                    // v8 Logic: Elapsed Time
+                    const now = Date.now();
+                    const startedMs = new Date(timer.started_at).getTime();
+                    const currentElapsed = Math.floor((now - startedMs) / 1000);
+                    const totalElapsed = (timer.elapsed_sec || 0) + currentElapsed;
+                    return Math.max(0, timer.duration_sec - totalElapsed);
                 }
-            }, 100);
+            } else if (timer.state === 'paused') {
+                 if (timer.remaining_sec != null) {
+                     return timer.remaining_sec;
+                 } else {
+                     const totalElapsed = timer.elapsed_sec || 0;
+                     return Math.max(0, timer.duration_sec - totalElapsed);
+                 }
+            } else if (timer.state === 'done') {
+                return 0;
+            }
+            return timer.duration_sec;
+        };
 
+        const update = () => {
+            const val = calculateRemaining();
+            setRemaining(val);
+            if (val === 0 && timer.state === 'running') {
+                console.log("Timer finished:", timer.label);
+                playTimerSound();
+                
+                if (typeof Notification !== 'undefined') {
+                    if (Notification.permission === "granted") {
+                        new Notification("Timer Done!", { 
+                            body: `${timer.label} is ready!`,
+                            icon: '/placeholders/recipe-amber-1.svg',
+                        });
+                    } else if (Notification.permission === "default") {
+                        // Try requesting one last time (unlikely to work without user gesture but worth a shot)
+                        Notification.requestPermission().then(p => {
+                            if (p === "granted") {
+                                new Notification("Timer Done!", { body: `${timer.label} is ready!` });
+                            }
+                        });
+                    } else {
+                        console.warn("Notifications blocked or not granted.");
+                    }
+                }
+                setShowDoneAlert(true);
+                actionRef.current('done');
+            }
+        };
+
+        update();
+
+        if (timer.state === 'running') {
+            const interval = setInterval(update, 200);
             return () => clearInterval(interval);
-        } else if (timer.state === 'done') {
-            setRemaining(0);
-        } else if (timer.state === 'paused') {
-            // Show remaining time at pause
-            const totalElapsed = timer.elapsed_sec || 0;
-            const pausedRemaining = Math.max(0, timer.duration_sec - totalElapsed);
-            setRemaining(pausedRemaining);
-        } else {
-            // For created state, show full duration
-            setRemaining(timer.duration_sec);
         }
-    }, [timer.state, timer.started_at, timer.duration_sec, timer.elapsed_sec, onAction, timerId]);
+    }, [timer.state, timer.due_at, timer.remaining_sec, timer.started_at, timer.duration_sec, timer.elapsed_sec]);
 
     const stateColors = {
         created: 'bg-stone-100 text-stone-600',
@@ -108,7 +182,10 @@ function TimerCard({
                         size="sm"
                         variant="ghost"
                         className="h-8 w-8 rounded-xl p-0"
-                        onClick={() => onAction('start')}
+                        onClick={() => {
+                            requestNotificationPermission();
+                            onAction('start');
+                        }}
                         data-testid={`timer-start-${timerId}`}
                     >
                         <Play className="h-4 w-4" />
@@ -165,6 +242,22 @@ function TimerCard({
                             setShowDeleteConfirm(false);
                         }}>
                             Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={showDoneAlert} onOpenChange={setShowDoneAlert}>
+                <AlertDialogContent className="z-[130]">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Timer Finished!</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {timer.label} is done.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => setShowDoneAlert(false)}>
+                            Okay
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -228,6 +321,7 @@ export function TimerManager({ stepIndex, timers, onTimerCreate, onTimerAction }
                                 variant="outline"
                                 className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60 font-semibold"
                                 onClick={() => {
+                                    requestNotificationPermission();
                                     onTimerCreate(preset.label, preset.seconds);
                                     setShowPresets(false);
                                 }}

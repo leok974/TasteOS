@@ -61,6 +61,8 @@ export interface CookTimer {
     elapsed_sec?: number; // Total elapsed time (for pause/resume)
     paused_at?: string | null; // NEW: Timestamp when paused
     state: "created" | "running" | "paused" | "done";
+    due_at?: string | null;
+    remaining_sec?: number | null;
 }
 
 export interface AssistResponse {

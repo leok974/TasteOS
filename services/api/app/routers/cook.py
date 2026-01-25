@@ -288,14 +288,16 @@ def patch_session(
     if patch.timer_create:
         t = patch.timer_create
         timer_id = uuid.uuid4().hex
+        timestamp = datetime.now(timezone.utc).isoformat()
         session.timers[timer_id] = {
             "step_index": t.get('step_index'),
             "bullet_index": t.get('bullet_index'),
             "label": t.get('label'),
             "duration_sec": t.get('duration_sec'),
             "started_at": None,
-            "elapsed_sec": 0,  # Track elapsed time for pause/resume
-            "paused_at": None,  # NEW: Track when timer was paused
+            "due_at": None,          # V9: Target completion time
+            "remaining_sec": None,   # V9: Time left when paused
+            "updated_at": timestamp,
             "state": "created"
         }
         from sqlalchemy.orm.attributes import flag_modified
@@ -329,29 +331,44 @@ def patch_session(
         timer = session.timers[a_timer_id]
         
         if a_action == "start":
-            # Starting from paused or created state
+            # V9 HARDENING
+            now = datetime.now(timezone.utc)
+            duration = timer.get("remaining_sec")
+            if duration is None:
+                duration = timer.get("duration_sec", 0)
+            
+            timer["started_at"] = now.isoformat()
+            timer["due_at"] = (now + timedelta(seconds=duration)).isoformat()
+            timer["remaining_sec"] = None
             timer["state"] = "running"
-            timer["started_at"] = datetime.utcnow().isoformat() + "Z"  # Add Z for UTC
-            timer["paused_at"] = None  # Clear paused timestamp
-            # Keep existing elapsed_sec if resuming from pause
-            if "elapsed_sec" not in timer:
-                timer["elapsed_sec"] = 0
+            timer["updated_at"] = now.isoformat()
+
         elif a_action == "pause":
-            # Calculate elapsed time and store it
-            if timer.get("started_at"):
-                started = datetime.fromisoformat(timer["started_at"].replace('Z', '+00:00'))
-                # Make utcnow timezone-aware to match started
-                now_tz = datetime.utcnow().replace(tzinfo=started.tzinfo)
-                elapsed = (now_tz - started).total_seconds()
-                current_elapsed = timer.get("elapsed_sec", 0)
-                timer["elapsed_sec"] = int(current_elapsed + elapsed)
+            # V9 HARDENING
+            now = datetime.now(timezone.utc)
+            if timer.get("due_at"):
+                due = datetime.fromisoformat(timer["due_at"])
+                # Ensure due is aware
+                if due.tzinfo is None: due = due.replace(tzinfo=timezone.utc)
+                
+                remaining = max(0, (due - now).total_seconds())
+                timer["remaining_sec"] = int(remaining)
+            
             timer["state"] = "paused"
-            timer["started_at"] = None  # Clear started_at on pause
-            timer["paused_at"] = datetime.utcnow().isoformat() + "Z"  # Store when paused
+            timer["started_at"] = None
+            timer["due_at"] = None
+            timer["updated_at"] = now.isoformat()
+
         elif a_action == "done":
             timer["state"] = "done"
+            timer["started_at"] = None
+            timer["due_at"] = None
+            timer["remaining_sec"] = None
+            timer["updated_at"] = datetime.now(timezone.utc).isoformat()
+            
         elif a_action == "delete":
-            del session.timers[a_timer_id]
+            if a_timer_id in session.timers:
+                del session.timers[a_timer_id]
         else:
             raise HTTPException(status_code=400, detail=f"Invalid action: {a_action}")
         

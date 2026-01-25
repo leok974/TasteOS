@@ -231,6 +231,9 @@ class TimerState(BaseModel):
     state: str = "created"
     started_at: Optional[datetime] = None
     step_index: int
+    due_at: Optional[datetime] = None
+    remaining_sec: Optional[int] = None
+    updated_at: Optional[datetime] = None
 
 class SessionResponse(BaseModel):
     id: str

@@ -72,7 +72,8 @@ export function useCookSessionActive(recipeId?: string) {
                     `/cook/session/active?recipe_id=${recipeId}`
                 );
             } catch (error: any) {
-                if (error.message.includes('404')) {
+                // 404 is expected if no session is active
+                if (error.message?.includes('404') || error.status === 404) {
                     return null;
                 }
                 throw error;

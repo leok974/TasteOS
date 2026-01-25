@@ -135,6 +135,30 @@ export function useCookSessionPatch(sessionId?: string) {
     });
 }
 
+// Hook: End cook session (complete or abandon)
+export function useCookSessionEnd() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ sessionId, action }: {
+            sessionId: string;
+            action: "complete" | "abandon"
+        }) => {
+            if (!sessionId) throw new Error("Session ID required");
+            return cookFetch<CookSession>(`/cook/session/${sessionId}/end?action=${action}`, {
+                method: "PATCH",
+            });
+        },
+        onSuccess: (data) => {
+            // Update cache
+            queryClient.setQueryData(
+                ["cook-session", "active", data.recipe_id],
+                data
+            );
+        },
+    });
+}
+
 // Hook: AI cooking assistance
 export function useCookAssist() {
     return useMutation({

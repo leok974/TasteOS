@@ -7,6 +7,16 @@ import { Clock, Play, Pause, Check, Trash2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/cn';
 import type { CookTimer } from './hooks';
 
@@ -33,6 +43,7 @@ function TimerCard({
     onAction: (action: 'start' | 'pause' | 'done' | 'delete') => void;
 }) {
     const [remaining, setRemaining] = useState(timer.duration_sec);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     useEffect(() => {
         if (timer.state === 'running' && timer.started_at) {
@@ -132,12 +143,32 @@ function TimerCard({
                     size="sm"
                     variant="ghost"
                     className="h-8 w-8 rounded-xl p-0 text-red-600 hover:text-red-700"
-                    onClick={() => onAction('delete')}
+                    onClick={() => setShowDeleteConfirm(true)}
                     data-testid={`timer-delete-${timerId}`}
                 >
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </div>
+
+            <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Timer?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete "{timer.label}". This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => {
+                            onAction('delete');
+                            setShowDeleteConfirm(false);
+                        }}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

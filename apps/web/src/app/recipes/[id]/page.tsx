@@ -834,6 +834,7 @@ export default function RecipeDetailPage() {
                         });
                     }
                 }}
+                onSessionEnd={handleSessionEnd}
             />
 
             <SubstituteModal

@@ -254,6 +254,41 @@ def patch_session(
     return _session_to_response(session)
 
 
+@router.patch("/session/{session_id}/end", response_model=SessionResponse)
+def end_session(
+    session_id: str,
+    action: str,  # "complete" or "abandon"
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Mark cooking session as completed or abandoned."""
+    # Get session with workspace validation
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    if action == "complete":
+        session.status = "completed"
+    elif action == "abandon":
+        session.status = "abandoned"
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
+    
+    session.ended_at = datetime.utcnow()
+    session.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    
+    logger.info(f"Session {session_id} marked as {session.status}")
+    return _session_to_response(session)
+
+
 @router.post("/assist", response_model=AssistResponse)
 @limiter.limit("15/minute")
 def assist(

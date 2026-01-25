@@ -176,11 +176,12 @@ export function useCookSessionEnd() {
             action: "complete" | "abandon"
         }) => {
             if (!sessionId) throw new Error("Session ID required");
-            return cookFetch<CookSession>(`/cook/session/${sessionId}/end?action=${action}`, {
-                method: "PATCH",
+            // v10: Use dedicated endpoints
+            return cookFetch<CookSession>(`/cook/session/${sessionId}/${action}`, {
+                method: "POST",
             });
         },
-        onSuccess: (data) => {
+        onSuccess: (data, variables) => {
             // Update cache
             queryClient.setQueryData(
                 ["cook-session", "active", data.recipe_id],
@@ -188,6 +189,13 @@ export function useCookSessionEnd() {
             );
             // Invalidate history
             queryClient.invalidateQueries({ queryKey: ["session", data.id, "history"] });
+            
+            // If abandoned, maybe clear active state? 
+            // Existing logic seems to rely on session data updates.
+            if (variables.action === 'abandon') {
+                 // Force refresh of active session to see it's gone/done
+                 queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+            }
         },
     });
 }
@@ -378,4 +386,44 @@ export function useCookAdjustmentUndo(sessionId?: string) {
         undoAdjustment: mutation.mutate,
         isUndoing: mutation.isPending
     };
+}
+
+// --- Cook Session Summary & Notes Hooks (v10) ---
+
+export function useCookSessionComplete() {
+    return useMutation({
+        mutationFn: async (sessionId: string) => {
+             return cookFetch(`/cook/session/${sessionId}/complete`, { method: "POST" });
+        }
+    });
+}
+
+export function useCookSessionSummary(sessionId: string | undefined, enabled: boolean = false) {
+    return useQuery({
+        queryKey: ["cook-session", sessionId, "summary"],
+        queryFn: () => cookFetch<any>(`/cook/session/${sessionId}/summary`),
+        enabled: !!sessionId && enabled
+    });
+}
+
+export function useCookNotesPreview() {
+    return useMutation({
+        mutationFn: async ({ sessionId, include }: { sessionId: string, include: any }) => {
+            return cookFetch<any>(`/cook/session/${sessionId}/notes/preview`, {
+                method: "POST",
+                body: JSON.stringify({ include })
+            });
+        }
+    });
+}
+
+export function useCookNotesApply() {
+    return useMutation({
+        mutationFn: async ({ sessionId, recipeId, notes }: { sessionId: string, recipeId: string, notes: string[] }) => {
+             return cookFetch(`/cook/session/${sessionId}/notes/apply`, {
+                method: "POST",
+                body: JSON.stringify({ recipe_id: recipeId, notes_append: notes })
+            });
+        }
+    });
 }

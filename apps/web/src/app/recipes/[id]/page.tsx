@@ -69,6 +69,7 @@ import { TimerManager } from '@/features/cook/TimerManager';
 import { AssistPanel } from '@/features/cook/AssistPanel';
 import { AdjustButtons } from '@/features/cook/AdjustButtons';
 import { WhyPanel } from '@/features/cook/components/WhyPanel';
+import { SessionSummary } from '@/features/cook/SessionSummary';
 import { apiPatchSession } from '@/lib/api';
 
 // Convert API step to CookStep format
@@ -376,6 +377,7 @@ function CookModeOverlay({
     const { mutate } = useSWRConfig();
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+    const [summaryId, setSummaryId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
 
     const { undoAdjustment, isUndoing } = useCookAdjustmentUndo(session?.id);
@@ -447,6 +449,9 @@ function CookModeOverlay({
         }());
 
         // Complete session
+        if (session) {
+            setSummaryId(session.id);
+        }
         onSessionEnd?.('complete');
         setShowCompleteConfirm(false);
     };
@@ -462,7 +467,7 @@ function CookModeOverlay({
                     exit={{ opacity: 0 }}
                 >
                     {/* ... (loader logic) ... */}
-                    {!session && (
+                    {!session && !summaryId && (
                         <div className="absolute inset-0 z-[150] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
                             <Loader2 className="h-10 w-10 animate-spin text-amber-500" />
                             <p className="mt-4 text-sm font-bold text-stone-500 uppercase tracking-widest">Starting Session...</p>
@@ -472,6 +477,30 @@ function CookModeOverlay({
                             >
                                 Cancel
                             </button>
+                        </div>
+                    )}
+
+                    {summaryId && (
+                         <div className="absolute inset-0 z-[160] overflow-y-auto bg-[#FAF9F6] p-4 flex items-center justify-center">
+                              <div className="w-full max-w-2xl relative">
+                                <button
+                                    onClick={() => {
+                                        setSummaryId(null);
+                                        onClose();
+                                    }}
+                                    className="absolute md:-right-12 -right-2 -top-12 md:top-0 p-2 text-stone-500 hover:text-stone-700 bg-white/50 rounded-full"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                                <SessionSummary 
+                                    sessionId={summaryId} 
+                                    recipeId={recipe.id}
+                                    onClose={() => {
+                                        setSummaryId(null);
+                                        onClose();
+                                    }}
+                                />
+                             </div>
                         </div>
                     )}
 
@@ -1181,8 +1210,11 @@ export default function RecipeDetailPage() {
             { sessionId: session.id, action },
             {
                 onSuccess: () => {
-                    console.log('[CookMode] Session end success, closing cook mode');
-                    setCookOpen(false);
+                    console.log('[CookMode] Session end success');
+                    // Only close immediately if abandoned. If completed, the overlay shows Summary.
+                    if (action === 'abandon') {
+                        setCookOpen(false);
+                    }
                     setStepIdx(0); // Reset local step index
                     // Invalidate active session query so next time it fetches fresh (or null)
                     queryClient.invalidateQueries({ queryKey: ['cook-session', 'active', recipeId] });

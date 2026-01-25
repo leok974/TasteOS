@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 import sqlite3
 import json
 
@@ -36,7 +37,7 @@ sqlite3.register_adapter(dict, json.dumps)
 # Register converter for our custom type ONLY to avoid double-decoding standard JSON
 sqlite3.register_converter("JSON_ARRAY", json.loads)
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
 # Note: check_same_thread is needed for SQLite. 
 # We also add detect_types to enable the converter.
@@ -45,7 +46,8 @@ engine = create_engine(
     connect_args={
         "check_same_thread": False,
         "detect_types": sqlite3.PARSE_DECLTYPES
-    }
+    },
+    poolclass=StaticPool # Important for in-memory to share connection across threads/sessions if needed
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

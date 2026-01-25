@@ -16,6 +16,8 @@ import {
     Sparkles,
     RefreshCw,
     Check,
+    Minus,
+    Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +35,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
-import { useCookSessionActive, useCookSessionStart, useCookSessionPatch, useCookSessionEnd } from '@/features/cook/hooks';
+import {
+    useCookSessionActive,
+    useCookSessionStart,
+    useCookSessionPatch,
+    useCookSessionEnd,
+    useCookSessionEvents
+} from '@/features/cook/hooks';
+import { MethodSwitcher } from '@/features/cook/MethodSwitcher';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -63,7 +72,68 @@ function apiStepToCookStep(step: RecipeStep): CookStep {
     };
 }
 
-// --- StepCard Component ---
+// --- Imports ---
+
+import type { CookSession } from '@/features/cook/hooks';
+
+// --- Helpers ---
+
+function formatQty(qty: number) {
+    const decimal = qty % 1;
+    const whole = Math.floor(qty);
+    let fraction = '';
+
+    if (Math.abs(decimal - 0.5) < 0.01) fraction = '½';
+    else if (Math.abs(decimal - 0.25) < 0.01) fraction = '¼';
+    else if (Math.abs(decimal - 0.75) < 0.01) fraction = '¾';
+    else if (Math.abs(decimal - 0.33) < 0.02) fraction = '⅓';
+    else if (Math.abs(decimal - 0.66) < 0.02) fraction = '⅔';
+
+    if (whole === 0 && fraction) return fraction;
+    if (whole > 0 && fraction) return `${whole} ${fraction}`;
+    return Number(qty.toFixed(2)).toString();
+}
+
+function IngredientsView({
+    ingredients,
+    baseServings,
+    targetServings
+}: {
+    ingredients: Recipe['ingredients'];
+    baseServings: number;
+    targetServings: number;
+}) {
+    if (!ingredients || ingredients.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center p-8 text-center bg-stone-50/50 rounded-2xl border border-stone-100">
+                <p className="text-stone-400 text-sm font-medium">No ingredients listed</p>
+            </div>
+        );
+    }
+
+    const factor = targetServings / (baseServings || 1);
+
+    return (
+        <div className="space-y-2">
+            {ingredients.map((ing, i) => {
+                const scaledQty = ing.qty ? ing.qty * factor : null;
+                return (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-amber-100/50 shadow-sm">
+                        <div className="h-2 w-2 rounded-full bg-amber-200 flex-shrink-0" />
+                        <div className="flex-1 text-sm font-medium text-stone-700">
+                            {ing.name}
+                        </div>
+                        {scaledQty !== null && (
+                            <div className="text-sm font-bold text-amber-900 bg-amber-50 px-2 py-1 rounded-lg">
+                                {formatQty(scaledQty)} <span className="text-xs font-normal text-amber-700">{ing.unit}</span>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
 function StepCard({
     step,
     index,
@@ -227,6 +297,7 @@ function CookModeOverlay({
     onTimerCreate,
     onTimerAction,
     onSessionEnd,
+    onServingsChange,
 }: {
     open: boolean;
     onClose: () => void;
@@ -237,19 +308,30 @@ function CookModeOverlay({
     checks: Record<string, boolean>;
     onToggle: (key: string) => void;
     onSubstitute: () => void;
-    session?: { id: string; timers: Record<string, any> } | null;
+    session?: CookSession | null;
     onTimerCreate?: (label: string, durationSec: number) => void;
     onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
     onSessionEnd?: (action: 'complete' | 'abandon') => void;
+    onServingsChange?: (target: number) => void;
 }) {
 
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+    const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
+
+    // Use overrides if available
+    // Use overrides if available and map to CookStep format (backend uses minutes_est)
+    const activeSteps = session?.steps_override
+        ? (session.steps_override as any[]).map((s) => ({
+            title: s.title,
+            minutes: s.minutes_est ?? s.minutes ?? 5,
+            bullets: s.bullets ?? [],
+            tip: s.tip
+        }))
+        : steps;
 
     const handleComplete = async () => {
-        // Trigger celebration confetti
-        // Dynamic import to avoid SSR/Build resolution issues
-        // Vendored locally to fix module resolution errors in dev
+        // ... (confetti logic) ...
         const confettiModule = await import('@/lib/confetti.js');
         const confetti = confettiModule.default || confettiModule;
 
@@ -281,7 +363,7 @@ function CookModeOverlay({
         onSessionEnd?.('complete');
         setShowCompleteConfirm(false);
     };
-    const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
+    const progress = activeSteps.length > 1 ? Math.round(((stepIdx + 1) / activeSteps.length) * 100) : 0;
 
     return (
         <AnimatePresence>
@@ -292,18 +374,11 @@ function CookModeOverlay({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                 >
-                    {/* Block interactions if no session yet (initializing) */}
+                    {/* ... (loader logic) ... */}
                     {!session && (
                         <div className="absolute inset-0 z-[150] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
-                            {/* Check if we have an error starting */}
-                            {/* Note: We need to pass isError prop or assume handled elsewhere? 
-                                Ideally we pass 'loadingError' prop to overlay. 
-                                For now, I'll just show 'Starting...' but if it takes too long user can close.
-                            */}
                             <Loader2 className="h-10 w-10 animate-spin text-amber-500" />
                             <p className="mt-4 text-sm font-bold text-stone-500 uppercase tracking-widest">Starting Session...</p>
-
-                            {/* Escape hatch for stuck loading */}
                             <button
                                 onClick={onClose}
                                 className="mt-8 text-xs text-stone-400 hover:text-stone-600 underline"
@@ -350,9 +425,32 @@ function CookModeOverlay({
                                 <Badge className="rounded-full bg-amber-100/70 text-amber-950 hover:bg-amber-100/70" variant="secondary">
                                     Cook Mode
                                 </Badge>
-                                <Badge className="rounded-full bg-white text-stone-600 hover:bg-white" variant="secondary">
-                                    {recipe.time_minutes || 0}m total
-                                </Badge>
+
+                                {session && (
+                                    <MethodSwitcher
+                                        sessionId={session.id}
+                                        activeMethodKey={session.method_key}
+                                    />
+                                )}
+
+                                {/* Servings Control */}
+                                <div className="flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 shadow-sm border border-stone-100">
+                                    <button
+                                        onClick={() => onServingsChange?.(Math.max(1, (session?.servings_target || 1) - 1))}
+                                        className="h-6 w-6 grid place-items-center rounded-full hover:bg-stone-50 text-stone-400 hover:text-stone-600 transition-colors"
+                                    >
+                                        <Minus className="h-3 w-3" />
+                                    </button>
+                                    <span className="text-xs font-bold text-stone-700 w-4 text-center">
+                                        {session?.servings_target || recipe.servings || 1}
+                                    </span>
+                                    <button
+                                        onClick={() => onServingsChange?.((session?.servings_target || 1) + 1)}
+                                        className="h-6 w-6 grid place-items-center rounded-full hover:bg-stone-50 text-stone-400 hover:text-stone-600 transition-colors"
+                                    >
+                                        <Plus className="h-3 w-3" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -387,39 +485,73 @@ function CookModeOverlay({
                         </div>
                     </div>
 
-                    {/* steps */}
+                    {/* tabs & content */}
                     <div className="relative flex-1 overflow-y-auto px-6 pb-28 pt-6 no-scrollbar">
+                        {/* Tab Switcher */}
                         <div className="sticky top-0 z-10 -mx-6 mb-4 bg-gradient-to-b from-[#FAF9F6] via-[#FAF9F6]/90 to-transparent px-6 pb-3 pt-2">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600">
-                                    <span className="inline-flex h-2 w-2 rounded-full bg-amber-500" />
-                                    Step timeline
-                                </div>
-                                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-stone-500">
-                                    Tap a node
-                                    <ChevronRight className="h-4 w-4 rotate-90 text-amber-700" />
-                                </div>
+                            <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-200/50 mb-4">
+                                <button
+                                    onClick={() => setActiveTab('steps')}
+                                    className={cn(
+                                        "flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all",
+                                        activeTab === 'steps' ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+                                    )}
+                                >
+                                    Steps
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('ingredients')}
+                                    className={cn(
+                                        "flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all",
+                                        activeTab === 'ingredients' ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+                                    )}
+                                >
+                                    Ingredients
+                                </button>
                             </div>
+
+                            {activeTab === 'steps' && (
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600">
+                                        <span className="inline-flex h-2 w-2 rounded-full bg-amber-500" />
+                                        Step timeline
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-stone-500">
+                                        Tap a node
+                                        <ChevronRight className="h-4 w-4 rotate-90 text-amber-700" />
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="space-y-5">
-                            {steps.map((s, i) => {
-                                const done = s.bullets.every((_, bi) => Boolean(checks[`${i}:${bi}`]));
-                                return (
-                                    <CookTimelineItem
-                                        key={`${s.title}-${i}`}
-                                        step={s}
-                                        index={i}
-                                        isActive={i === stepIdx}
-                                        isDone={done}
-                                        isLast={i === steps.length - 1}
-                                        onSelect={() => setStepIdx(i)}
-                                        checks={checks}
-                                        onToggle={onToggle}
-                                    />
-                                );
-                            })}
-                        </div>
+                        {activeTab === 'steps' ? (
+                            <div className="space-y-5">
+                                {activeSteps.map((s, i) => {
+                                    const done = s.bullets.every((_: any, bi: number) => Boolean(checks[`${i}:${bi}`]));
+                                    return (
+                                        <CookTimelineItem
+                                            key={`${s.title}-${i}`}
+                                            step={s}
+                                            index={i}
+                                            isActive={i === stepIdx}
+                                            isDone={done}
+                                            isLast={i === activeSteps.length - 1}
+                                            onSelect={() => setStepIdx(i)}
+                                            checks={checks}
+                                            onToggle={onToggle}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                <IngredientsView
+                                    ingredients={recipe.ingredients}
+                                    baseServings={session?.servings_base || recipe.servings || 1}
+                                    targetServings={session?.servings_target || recipe.servings || 1}
+                                />
+                            </div>
+                        )}
 
 
                         <div className="mt-6 space-y-4">
@@ -441,7 +573,6 @@ function CookModeOverlay({
                                         onTimerAction={(timerId, action) => {
                                             onTimerAction?.(timerId, action);
                                         }}
-                                        onSessionEnd={onSessionEnd}
                                     />
                                 </CardContent>
                             </Card>
@@ -459,9 +590,9 @@ function CookModeOverlay({
                     <div className="fixed bottom-0 left-0 right-0 z-[130] border-t border-amber-100/60 bg-white/90 px-6 pb-6 pt-4 backdrop-blur-2xl">
                         <div className="mb-3 flex items-center justify-between">
                             <div className="text-[10px] font-black uppercase tracking-widest text-stone-500">
-                                Step {Math.min(stepIdx + 1, steps.length)} of {steps.length}
+                                Step {Math.min(stepIdx + 1, activeSteps.length)} of {activeSteps.length}
                             </div>
-                            <div className="text-[10px] font-black uppercase tracking-widest text-amber-800">{steps[stepIdx]?.minutes ?? 0} min</div>
+                            <div className="text-[10px] font-black uppercase tracking-widest text-amber-800">{activeSteps[stepIdx]?.minutes ?? 0} min</div>
                         </div>
                         <div className="flex gap-2">
                             <Button
@@ -474,8 +605,8 @@ function CookModeOverlay({
                             </Button>
                             <Button
                                 className="h-12 flex-1 rounded-2xl bg-stone-900 text-xs font-black uppercase tracking-widest text-white hover:bg-stone-900"
-                                onClick={() => setStepIdx(Math.min(steps.length - 1, stepIdx + 1))}
-                                disabled={stepIdx >= steps.length - 1}
+                                onClick={() => setStepIdx(Math.min(activeSteps.length - 1, stepIdx + 1))}
+                                disabled={stepIdx >= activeSteps.length - 1}
                             >
                                 Next
                             </Button>
@@ -800,6 +931,9 @@ export default function RecipeDetailPage() {
         });
     }
 
+    // Subscribe to real-time events
+    useCookSessionEvents(session?.id);
+
     const toggleCheck = (key: string) => {
         const [stepIndex, bulletIndex] = key.split(':').map(Number);
         const checked = !checks[key];
@@ -817,6 +951,18 @@ export default function RecipeDetailPage() {
             });
         }
     };
+
+    const handleServingsChange = (target: number) => {
+        if (session) {
+            // Optimistic update handled by cache or wait for response?
+            // Mutation will settle and refetch/update cache.
+            // SSE will also push update.
+            patchSessionMutation.mutate({
+                sessionId: session.id,
+                patch: { servings_target: target }
+            });
+        }
+    }
 
     // Handle session end
     const handleSessionEnd = (action: 'complete' | 'abandon') => {
@@ -891,6 +1037,7 @@ export default function RecipeDetailPage() {
                 onToggle={toggleCheck}
                 onSubstitute={() => setSubOpen(true)}
                 session={session}
+                onServingsChange={handleServingsChange}
                 onTimerCreate={(label, durationSec) => {
                     if (session) {
                         patchSessionMutation.mutate({

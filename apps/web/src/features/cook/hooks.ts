@@ -2,6 +2,7 @@
  * Cook Session API hooks for Cook Assist v1
  */
 
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api";
 
@@ -38,9 +39,17 @@ export interface CookSession {
     recipe_id: string;
     status: "active" | "completed" | "abandoned";
     started_at: string;
+    servings_base: number;
+    servings_target: number;
     current_step_index: number;
     step_checks: Record<string, Record<string, boolean>>; // {stepIndex: {bulletIndex: checked}}
     timers: Record<string, CookTimer>;
+
+    // Method Switching
+    method_key?: string | null;
+    steps_override?: any[] | null; // using any[] or RecipeStep[]
+    method_tradeoffs?: Record<string, any> | null;
+    method_generated_at?: string | null;
 }
 
 export interface CookTimer {
@@ -128,6 +137,7 @@ export function useCookSessionPatch() {
                     timer_id: string;
                     action: "start" | "pause" | "done" | "delete";
                 };
+                servings_target?: number;
             }
         }) => {
             if (!sessionId) throw new Error("Session ID required");
@@ -188,5 +198,122 @@ export function useCookAssist() {
                 body: JSON.stringify(request),
             });
         },
+    });
+}
+
+// Hook: Subscribe to SSE events
+export function useCookSessionEvents(sessionId: string | undefined) {
+    const queryClient = useQueryClient();
+
+    useEffect(() => {
+        if (!sessionId) return;
+
+        let evtSource: EventSource | null = null;
+        let retryTimer: NodeJS.Timeout;
+
+        const connect = () => {
+            evtSource = new EventSource(`${API_BASE}/cook/session/${sessionId}/events`);
+
+            evtSource.onmessage = (e) => {
+                // Heartbeat or random message
+            };
+
+            evtSource.addEventListener("session", (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    // Update cache optimistically
+                    queryClient.setQueryData(
+                        ["cook-session", "active", data.recipe_id],
+                        data
+                    );
+                } catch (err) {
+                    console.error("Failed to parse SSE session data", err);
+                }
+            });
+
+            evtSource.onerror = (e) => {
+                // console.error("SSE Error", e);
+                evtSource?.close();
+                // Retry after delay
+                retryTimer = setTimeout(connect, 3000);
+            };
+        };
+
+        connect();
+
+        return () => {
+            evtSource?.close();
+            clearTimeout(retryTimer);
+        };
+    }, [sessionId, queryClient]);
+}
+
+// --- Method Switcher Hooks ---
+
+export function useCookMethods() {
+    return useQuery({
+        queryKey: ["cook-methods"],
+        queryFn: async () => {
+            return cookFetch<{ methods: any[] }>("/cook/methods");
+        },
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
+}
+
+export function useCookMethodPreview() {
+    return useMutation({
+        mutationFn: async ({ sessionId, methodKey }: { sessionId: string; methodKey: string }) => {
+            return cookFetch<any>(`/cook/session/${sessionId}/method/preview`, {
+                method: "POST",
+                body: JSON.stringify({ method_key: methodKey }),
+            });
+        },
+    });
+}
+
+export function useCookMethodApply() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ sessionId, methodKey, steps, tradeoffs }: {
+            sessionId: string;
+            methodKey: string;
+            steps: any[];
+            tradeoffs: any
+        }) => {
+            return cookFetch<CookSession>(`/cook/session/${sessionId}/method/apply`, {
+                method: "POST",
+                body: JSON.stringify({
+                    method_key: methodKey,
+                    steps_override: steps,
+                    method_tradeoffs: tradeoffs
+                }),
+            });
+        },
+        onSuccess: (data) => {
+            // Optimistic update
+            queryClient.setQueryData(
+                ["cook-session", "active", data.recipe_id],
+                data
+            );
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active", data.recipe_id] });
+        }
+    });
+}
+
+export function useCookMethodReset() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ sessionId }: { sessionId: string }) => {
+            return cookFetch<CookSession>(`/cook/session/${sessionId}/method/reset`, {
+                method: "POST",
+            });
+        },
+        onSuccess: (data) => {
+            queryClient.setQueryData(
+                ["cook-session", "active", data.recipe_id],
+                data
+            );
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active", data.recipe_id] });
+        }
     });
 }

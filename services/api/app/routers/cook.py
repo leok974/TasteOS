@@ -9,39 +9,67 @@ Endpoints:
 
 import uuid
 import logging
+import asyncio
+import queue
+import json
 from typing import Optional
+from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..db import get_db
 from ..deps import get_workspace
 from ..models import Workspace, CookSession, Recipe
 from ..services.ai_service import ai_service
+from ..services.variant_generator import variant_generator
+from ..schemas import (
+    MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
+    SessionResponse, SessionPatchRequest
+)
 
 router = APIRouter(prefix="/cook", tags=["cook"])
 limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("tasteos.cook")
+
+# --- SSE PubSub ---
+# session_id -> list of queues
+_session_listeners: dict[str, list[queue.Queue]] = defaultdict(list)
+
+def _notify_session_update(session: CookSession):
+    """Publish session update to all active listeners."""
+    try:
+        data = _session_to_response(session).model_dump(mode='json')
+        msg = f"event: session\ndata: {json.dumps(data)}\n\n"
+        
+        listeners = _session_listeners.get(session.id, [])
+        dead_queues = []
+        for q in listeners:
+            try:
+                q.put_nowait(msg)
+            except queue.Full:
+                dead_queues.append(q)
+        
+        # Cleanup full/dead queues
+        for dq in dead_queues:
+            if dq in listeners:
+                listeners.remove(dq)
+                
+    except Exception as e:
+        logger.error(f"Failed to publish session update: {e}")
+
 
 
 # --- Request/Response Models ---
 
 class SessionStartRequest(BaseModel):
     recipe_id: str
-
-class SessionResponse(BaseModel):
-    id: str
-    recipe_id: str
-    status: str
-    started_at: str
-    current_step_index: int
-    step_checks: dict
-    timers: dict
 
 class StepCheckPatch(BaseModel):
     step_index: int
@@ -57,12 +85,6 @@ class TimerCreate(BaseModel):
 class TimerAction(BaseModel):
     timer_id: str
     action: str  # start, pause, done, delete
-
-class SessionPatchRequest(BaseModel):
-    current_step_index: Optional[int] = None
-    step_checks_patch: Optional[StepCheckPatch] = None
-    timer_create: Optional[TimerCreate] = None
-    timer_action: Optional[TimerAction] = None
 
 class AssistRequest(BaseModel):
     recipe_id: str
@@ -117,6 +139,8 @@ def start_session(
         workspace_id=workspace.id,
         recipe_id=request.recipe_id,
         status="active",
+        servings_base=recipe.servings or 1,
+        servings_target=recipe.servings or 1,
         current_step_index=0,
         step_checks={},
         timers={}
@@ -171,6 +195,9 @@ def patch_session(
         raise HTTPException(status_code=404, detail="Session not found")
     
     # Apply patches
+    if patch.servings_target is not None:
+        session.servings_target = patch.servings_target
+
     if patch.current_step_index is not None:
         session.current_step_index = patch.current_step_index
     
@@ -251,6 +278,7 @@ def patch_session(
     db.commit()
     db.refresh(session)
     
+    _notify_session_update(session)
     return _session_to_response(session)
 
 
@@ -285,6 +313,7 @@ def end_session(
     db.commit()
     db.refresh(session)
     
+    _notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
     return _session_to_response(session)
 
@@ -421,6 +450,161 @@ def assist(
         raise HTTPException(status_code=400, detail=f"Unknown intent: {intent}")
 
 
+@router.get("/session/{session_id}/events")
+async def session_events(
+    request: Request,
+    session_id: str,
+    # db: Session = Depends(get_db), # NOTE: Standard validation skipped for stream performance unless strict is needed
+):
+    """Server-Sent Events for session updates."""
+    
+    async def event_generator():
+        q = queue.Queue(maxsize=20)
+        _session_listeners[session_id].append(q)
+        try:
+            while True:
+                # Check for client disconnect
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    # Non-blocking get with loop yielding
+                    # We run q.get in executor if we want strict non-blocking, but q.get_nowait + sleep is often simpler for low throughput
+                    # Better: await loop.run_in_executor
+                    loop = asyncio.get_running_loop()
+                    try:
+                         # Wait for event with timeout for keepalive
+                        data = await asyncio.wait_for(
+                             loop.run_in_executor(None, q.get, True, 5), # timeout 5s within executor? No, q.get(block=True, timeout=5)
+                             timeout=15 
+                        )
+                        yield data
+                    except asyncio.TimeoutError:
+                         # Keepalive
+                         yield "event: ping\ndata: {}\n\n"
+                    except queue.Empty:
+                         yield "event: ping\ndata: {}\n\n"
+                         
+                except Exception as e:
+                    # logger.error(f"SSE Error: {e}")
+                    yield "event: ping\ndata: {}\n\n"
+                    await asyncio.sleep(5) # Avoid tight loop on error
+                    
+        finally:
+            if q in _session_listeners[session_id]:
+                _session_listeners[session_id].remove(q)
+            # logger.info(f"SSE client disconnected for {session_id}")
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+
+# --- Method Switcher Endpoints ---
+
+@router.get("/methods", response_model=MethodListResponse)
+def get_supported_methods(
+    request: Request,
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get available cooking methods for Method Switching."""
+    methods = variant_generator.get_supported_methods()
+    return MethodListResponse(methods=methods)
+
+
+@router.post("/session/{session_id}/method/preview", response_model=MethodPreviewResponse)
+def preview_method_variant(
+    session_id: str,
+    body: MethodPreviewRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Generate a preview of the recipe variant for the selected method."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    try:
+        preview = variant_generator.generate(recipe, body.method_key)
+        return preview
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/session/{session_id}/method/apply", response_model=SessionResponse)
+def apply_method_variant(
+    session_id: str,
+    body: MethodApplyRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Apply a method override to the session."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Update session
+    session.method_key = body.method_key
+    session.steps_override = body.steps_override
+    session.method_tradeoffs = body.method_tradeoffs
+    session.method_generated_at = datetime.utcnow()
+    
+    # Reset progress as we are back to original steps (or new steps)
+    session.current_step_index = 0
+    session.step_checks = {} 
+
+    db.commit()
+    db.refresh(session)
+    
+    _notify_session_update(session)
+    return _session_to_response(session)
+
+
+@router.post("/session/{session_id}/method/reset", response_model=SessionResponse)
+def reset_method_variant(
+    session_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Clear any method overrides and return to original recipe."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.method_key = None
+    session.steps_override = None
+    session.method_tradeoffs = None
+    session.method_generated_at = None
+    
+    # Reset progress
+    session.current_step_index = 0
+    session.step_checks = {}
+
+    db.commit()
+    db.refresh(session)
+    
+    _notify_session_update(session)
+    return _session_to_response(session)
+
+
 # --- Helpers ---
 
 def _session_to_response(session: CookSession) -> SessionResponse:
@@ -429,9 +613,15 @@ def _session_to_response(session: CookSession) -> SessionResponse:
         recipe_id=session.recipe_id,
         status=session.status,
         started_at=session.started_at.isoformat(),
+        servings_base=session.servings_base,
+        servings_target=session.servings_target,
         current_step_index=session.current_step_index,
         step_checks=session.step_checks,
         timers=session.timers,
+        method_key=session.method_key,
+        steps_override=session.steps_override,
+        method_tradeoffs=session.method_tradeoffs,
+        method_generated_at=session.method_generated_at,
     )
 
 def _confidence_to_float(conf_str: str) -> float:

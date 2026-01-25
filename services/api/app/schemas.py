@@ -62,6 +62,20 @@ class RecipeImageOut(BaseModel):
         from_attributes = True
 
 
+# --- Recipe Ingredient ---
+
+class RecipeIngredientOut(BaseModel):
+    id: str
+    name: str
+    qty: Optional[float]
+    unit: Optional[str]
+    category: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+
 # --- Recipe ---
 
 class RecipeCreate(BaseModel):
@@ -94,6 +108,7 @@ class RecipeOut(BaseModel):
     time_minutes: Optional[int]
     notes: Optional[str]
     steps: list[RecipeStepOut] = []
+    ingredients: list[RecipeIngredientOut] = []
     images: list[RecipeImageOut] = []
     primary_image_url: Optional[str] = None  # Convenience field
     created_at: datetime
@@ -206,3 +221,65 @@ class GenerateGroceryRequest(BaseModel):
 class GroceryItemUpdate(BaseModel):
     status: Optional[str] = None # need | have | purchased | optional
     qty: Optional[float] = None
+
+# --- Cook Session ---
+
+class TimerState(BaseModel):
+    label: str
+    duration_sec: int
+    elapsed_sec: int = 0
+    state: str = "created"
+    started_at: Optional[datetime] = None
+    step_index: int
+
+class SessionResponse(BaseModel):
+    id: str
+    recipe_id: str
+    status: str
+    started_at: datetime
+    servings_base: int
+    servings_target: int
+    current_step_index: int
+    step_checks: dict = {}
+    timers: dict[str, TimerState] = {}
+    
+    # Method Switching
+    method_key: Optional[str] = None
+    steps_override: Optional[list[dict]] = None
+    method_tradeoffs: Optional[dict] = None
+    method_generated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class SessionPatchRequest(BaseModel):
+    current_step_index: Optional[int] = Field(None, ge=0)
+    step_checks_patch: Optional[dict] = None
+    timers_patch: Optional[dict] = None
+    timer_create: Optional[dict] = None
+    timer_action: Optional[dict] = None
+    servings_target: Optional[int] = Field(None, ge=1)
+
+# --- Method Switcher Schemas ---
+
+class MethodOption(BaseModel):
+    key: str
+    label: str
+    summary: str
+    warnings: list[str] = []
+
+class MethodListResponse(BaseModel):
+    methods: list[MethodOption]
+
+class MethodPreviewRequest(BaseModel):
+    method_key: str
+
+class MethodApplyRequest(BaseModel):
+    method_key: str
+    steps_override: list[dict] # Should validate against RecipeStep structure ideally
+    method_tradeoffs: dict
+
+class MethodPreviewResponse(BaseModel):
+    tradeoffs: dict
+    steps_preview: list[dict]
+    diff: Optional[dict] = None

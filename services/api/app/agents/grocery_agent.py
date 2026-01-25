@@ -1,13 +1,13 @@
-
 """Grocery List Agent."""
+from typing import Optional
 from sqlalchemy.orm import Session
 from ..models import Workspace, Recipe, GroceryList, GroceryListItem, PantryItem
 
 def generate_grocery_list(
     db: Session,
     workspace: Workspace,
-    recipe_ids: list[str] | None = None,
-    source_override: str | None = None
+    recipe_ids: Optional[list[str]] = None,
+    source_override: Optional[str] = None
 ) -> GroceryList:
     """Generate a grocery list from selected recipes."""
     

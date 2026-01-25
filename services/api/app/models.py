@@ -428,9 +428,20 @@ class CookSession(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True) # NEW: Track when session ended
+    
+    # Servings scaling
+    servings_base: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    servings_target: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    
     current_step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     step_checks: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     timers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    
+    # Method Switching
+    method_key: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    steps_override: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
+    method_tradeoffs: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    method_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     workspace: Mapped["Workspace"] = relationship()
 

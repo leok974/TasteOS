@@ -57,6 +57,7 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
         time_minutes=recipe.time_minutes,
         notes=recipe.notes,
         steps=recipe.steps,
+        ingredients=recipe.ingredients,
         images=recipe.images,
         primary_image_url=primary_url,
         created_at=recipe.created_at,
@@ -154,6 +155,7 @@ def create_recipe(
         db.query(Recipe)
         .options(
             joinedload(Recipe.steps), 
+            joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
             joinedload(Recipe.active_image)
         )
@@ -175,6 +177,7 @@ def get_recipe(
         db.query(Recipe)
         .options(
             joinedload(Recipe.steps), 
+            joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
             joinedload(Recipe.active_image)
         )
@@ -200,6 +203,7 @@ def update_recipe(
         db.query(Recipe)
         .options(
             joinedload(Recipe.steps), 
+            joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
             joinedload(Recipe.active_image)
         )
@@ -249,6 +253,7 @@ def update_recipe(
         db.query(Recipe)
         .options(
             joinedload(Recipe.steps), 
+            joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
             joinedload(Recipe.active_image)
         )

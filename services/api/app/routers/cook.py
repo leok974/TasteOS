@@ -217,7 +217,7 @@ def patch_session(
         if a.action == "start":
             # Starting from paused or created state
             timer["state"] = "running"
-            timer["started_at"] = datetime.utcnow().isoformat()
+            timer["started_at"] = datetime.utcnow().isoformat() + "Z"  # Add Z for UTC
             # Keep existing elapsed_sec if resuming from pause
             if "elapsed_sec" not in timer:
                 timer["elapsed_sec"] = 0

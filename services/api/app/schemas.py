@@ -327,6 +327,9 @@ class AdjustApplyRequest(BaseModel):
     steps_override: list[dict]
     adjustment: CookAdjustment
 
+class AdjustUndoRequest(BaseModel):
+    adjustment_id: Optional[str] = None
+
 # --- Cook Session Events ---
 
 class CookSessionEventOut(BaseModel):

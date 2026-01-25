@@ -37,7 +37,7 @@ from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
     SessionResponse, SessionPatchRequest, SessionWhyResponse, StepSignal,
     AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
-    CookSessionEventOut
+    AdjustUndoRequest, CookSessionEventOut
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -858,12 +858,38 @@ def apply_adjustment(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    # Capture snapshot before applying
+    step_index = request.adjustment.step_index
+    before_step = None
+    
+    if session.steps_override:
+        if 0 <= step_index < len(session.steps_override):
+            before_step = session.steps_override[step_index]
+    else:
+        # Fetch original recipe step
+        r = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+        if r and r.steps:
+            sorted_steps = sorted(r.steps, key=lambda x: x.step_index)
+            if 0 <= step_index < len(sorted_steps):
+                s = sorted_steps[step_index]
+                before_step = {
+                    "step_index": s.step_index,
+                    "title": s.title,
+                    "bullets": s.bullets,
+                    "minutes_est": s.minutes_est,
+                }
+
     session.steps_override = request.steps_override
     
     # Append to log
     # request.adjustment is a Pydantic model CookAdjustment
     log_entry = request.adjustment.model_dump(mode='json')
     log_entry["applied_at"] = datetime.now(timezone.utc).isoformat()
+    if before_step:
+        log_entry["before_step"] = before_step
+    
+    if 0 <= step_index < len(request.steps_override):
+        log_entry["after_step"] = request.steps_override[step_index]
     
     if not session.adjustments_log:
         session.adjustments_log = []
@@ -873,6 +899,20 @@ def apply_adjustment(
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(session, "adjustments_log")
     flag_modified(session, "steps_override")
+    
+    # Log event
+    log_event(
+        db,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        type="adjust_apply",
+        meta={
+            "adjustment_id": request.adjustment.id,
+            "kind": request.adjustment.kind,
+            "step_index": step_index
+        },
+        step_index=step_index
+    )
     
     # Update interaction stats
     now = datetime.now(timezone.utc)
@@ -884,6 +924,118 @@ def apply_adjustment(
     calculate_auto_step_from_events(session, db, now)
     
     session.updated_at = now
+    db.commit()
+    db.refresh(session)
+    
+    notify_session_update(session)
+    return session_to_response(session)
+
+
+@router.post("/session/{session_id}/adjust/undo", response_model=SessionResponse)
+def undo_adjustment(
+    session_id: str,
+    request: AdjustUndoRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Undo a previously applied adjustment."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    if not session.adjustments_log:
+         raise HTTPException(status_code=404, detail="No adjustments to undo")
+
+    # Find target adjustment
+    target_entry = None
+    target_idx = -1
+    
+    if request.adjustment_id:
+        for i, entry in enumerate(session.adjustments_log):
+             if entry.get("id") == request.adjustment_id:
+                  target_entry = entry
+                  target_idx = i
+                  break
+    else:
+        # Find last applied and not undone
+        for i in range(len(session.adjustments_log) - 1, -1, -1):
+             entry = session.adjustments_log[i]
+             # Only consider applied adjustments (should all be applied if in log, but be safe)
+             # And ignore already undone ones
+             if not entry.get("undone_at"):
+                  target_entry = entry
+                  target_idx = i
+                  break
+    
+    if not target_entry:
+         raise HTTPException(status_code=404, detail="Adjustment not found or already undone")
+         
+    if target_entry.get("undone_at"):
+         raise HTTPException(status_code=409, detail="Adjustment already undone")
+         
+    before_step = target_entry.get("before_step")
+    step_index = target_entry.get("step_index")
+    
+    if before_step is None or step_index is None:
+         # Check if it was a legacy log entry or failed snapshot
+         logger.warning(f"Adjustment {target_entry.get('id')} missing snapshot data. Marking as undone without revert.")
+         
+         from sqlalchemy.orm.attributes import flag_modified
+
+         # Soft-fail: Mark undone so user isn't stuck, but can't revert content
+         target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
+         session.adjustments_log[target_idx] = target_entry
+         flag_modified(session, "adjustments_log")
+         db.commit()
+         
+         # We return success because we cleared the "Undo" state effectively, 
+         # but maybe we should warn the user? For now, this unblocks the UI.
+         return session_to_response(session)
+
+    # Revert step
+    if not session.steps_override:
+         # This implies state corruption if we have an applied adjustment log
+         # Fallback: maybe just load recipe? No, that's dangerous.
+         raise HTTPException(status_code=500, detail="Session corrupted: overrides missing")
+    
+    # Modify list in place copy
+    steps = list(session.steps_override)
+    if 0 <= step_index < len(steps):
+        steps[step_index] = before_step
+        session.steps_override = steps
+    else:
+        raise HTTPException(status_code=400, detail="Step index out of bounds")
+
+    # Mark log entry as undone
+    target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
+    # "Modify" the list item - to trigger SQLAlchemy change we might need to re-set the item or whole list
+    # JSONB mutable tracking can be finicky.
+    session.adjustments_log[target_idx] = target_entry 
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "adjustments_log")
+    flag_modified(session, "steps_override")
+    
+    # Log event
+    log_event(
+        db,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        type="adjust_undo",
+        meta={
+            "adjustment_id": target_entry.get("id"),
+            "kind": target_entry.get("kind"),
+            "step_index": step_index
+        },
+        step_index=step_index
+    )
+    
+    session.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)
     

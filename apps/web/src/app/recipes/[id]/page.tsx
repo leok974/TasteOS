@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSWRConfig } from 'swr';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -20,6 +20,7 @@ import {
     Minus,
     Plus,
     ScrollText,
+    RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,8 @@ import {
     useCookSessionStart,
     useCookSessionPatch,
     useCookSessionEnd,
-    useCookSessionEvents
+    useCookSessionEvents,
+    useCookAdjustmentUndo,
 } from '@/features/cook/hooks';
 import { MethodSwitcher } from '@/features/cook/MethodSwitcher';
 import {
@@ -376,6 +378,14 @@ function CookModeOverlay({
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
     const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
 
+    const { undoAdjustment, isUndoing } = useCookAdjustmentUndo(session?.id);
+
+    // Calculate if we can undo (any adjustment in log that isn't undone)
+    const canUndo = useMemo(() => {
+        if (!session?.adjustments_log?.length) return false;
+        return session.adjustments_log.some((adj: any) => !adj.undone);
+    }, [session?.adjustments_log]);
+
     // Sync external step index changes (e.g. from Auto-Jump or other devices)
     useEffect(() => {
         if (session?.current_step_index != null && session.current_step_index !== stepIdx) {
@@ -520,6 +530,20 @@ function CookModeOverlay({
                                                 </button>
                                             )}
                                         </div>
+
+                                        {canUndo && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => undoAdjustment()}
+                                                disabled={isUndoing}
+                                                className="h-[34px] rounded-full border-amber-200/50 bg-amber-50/50 hover:bg-amber-100/50 text-amber-700"
+                                            >
+                                                <RotateCcw className={cn("h-4 w-4 mr-1.5", isUndoing && "animate-spin")} />
+                                                Undo
+                                            </Button>
+                                        )}
+
                                         <MethodSwitcher
                                             sessionId={session.id}
                                             activeMethodKey={session.method_key}

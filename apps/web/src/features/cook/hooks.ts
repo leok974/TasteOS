@@ -351,3 +351,29 @@ export function useCookSessionWhy(sessionId: string | undefined, enabled: boolea
         enabled: !!sessionId && enabled,
     });
 }
+
+// Hook: Undo last adjustment
+export function useCookAdjustmentUndo(sessionId?: string) {
+    const queryClient = useQueryClient();
+    const mutation = useMutation({
+        mutationFn: async () => {
+            if (!sessionId) throw new Error("No session ID");
+            return cookFetch<CookSession>(`/cook/session/${sessionId}/adjust/undo`, {
+                method: "POST",
+                body: JSON.stringify({})
+            });
+        },
+        onSuccess: (data) => {
+            queryClient.setQueryData(
+                ["cook-session", "active", data.recipe_id],
+                data
+            );
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active", data.recipe_id] });
+        }
+    });
+
+    return {
+        undoAdjustment: mutation.mutate,
+        isUndoing: mutation.isPending
+    };
+}

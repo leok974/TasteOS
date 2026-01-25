@@ -647,7 +647,15 @@ export default function RecipeDetailPage() {
 
     // Auto-start session when cook mode opens
     useEffect(() => {
+        console.log('[CookMode] Effect check:', {
+            cookOpen,
+            sessionLoading,
+            hasSession: !!session,
+            sessionStarted: sessionStarted.current
+        });
+
         if (cookOpen && !sessionLoading && !session && !sessionStarted.current) {
+            console.log('[CookMode] Starting session...');
             sessionStarted.current = true;
             startSessionMutation.mutate(recipeId);
         }

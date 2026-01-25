@@ -225,7 +225,9 @@ def patch_session(
             # Calculate elapsed time and store it
             if timer.get("started_at"):
                 started = datetime.fromisoformat(timer["started_at"].replace('Z', '+00:00'))
-                elapsed = (datetime.utcnow() - started).total_seconds()
+                # Make utcnow timezone-aware to match started
+                now = datetime.utcnow().replace(tzinfo=started.tzinfo)
+                elapsed = (now - started).total_seconds()
                 current_elapsed = timer.get("elapsed_sec", 0)
                 timer["elapsed_sec"] = int(current_elapsed + elapsed)
             timer["state"] = "paused"

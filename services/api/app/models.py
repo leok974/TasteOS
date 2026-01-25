@@ -431,6 +431,11 @@ class CookSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True) # NEW: Track when session ended
     
+    # Completion tracking (v10)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    abandoned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_reason: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
     # Servings scaling
     servings_base: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     servings_target: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

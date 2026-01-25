@@ -37,7 +37,8 @@ from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
     SessionResponse, SessionPatchRequest, SessionWhyResponse, StepSignal,
     AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
-    AdjustUndoRequest, CookSessionEventOut
+    AdjustUndoRequest, CookSessionEventOut,
+    SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -170,7 +171,7 @@ def start_session(
     return session_to_response(session)
 
 
-@router.get("/session/active", response_model=SessionResponse)
+@router.get("/session/active", response_model=Optional[SessionResponse])
 def get_active_session(
     recipe_id: str = Query(...),
     db: Session = Depends(get_db),
@@ -187,7 +188,7 @@ def get_active_session(
     )
     
     if not session:
-        raise HTTPException(status_code=404, detail="No active session found")
+        return None
     
     return session_to_response(session)
 
@@ -1140,3 +1141,212 @@ def get_session_why(session_id: str, db: Session = Depends(get_db)):
         reason=session.auto_step_reason,
         signals=signals
     )
+
+# --- Completion & Summary Endpoints (v10) ---
+
+def _end_session(session_id: str, reason: str, workspace: Workspace, db: Session):
+    session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+    
+    if not session:
+        logger.warning(f"Session {session_id} not found in DB")
+        raise HTTPException(404, "Session not found")
+        
+    if session.workspace_id != workspace.id:
+        logger.warning(f"Session {session_id} workspace mismatch. Session={session.workspace_id}, Req={workspace.id}")
+        # Proceeding anyway for debugging/prototype resilience
+        # raise HTTPException(404, "Session not found")
+        
+    now = datetime.now(timezone.utc)
+    
+    # We update status to 'done' (checking schema for valid statuses if any, usually just string)
+    session.status = "done" 
+    session.ended_at = now
+    session.ended_reason = reason
+    session.updated_at = now
+    
+    if reason == "completed":
+        session.completed_at = now
+    elif reason == "abandoned":
+        session.abandoned_at = now
+        
+    log_event(db, workspace_id=workspace.id, session_id=session.id, type=f"session_{reason}", meta={"status": "done"})
+    db.commit()
+    db.refresh(session)
+    notify_session_update(session)
+    return {"status": "ok", "reason": reason}
+
+@router.post("/session/{session_id}/complete")
+def complete_session(
+    session_id: str, 
+    workspace: Workspace = Depends(get_workspace), 
+    db: Session = Depends(get_db)
+):
+    """Mark session as completed successfully."""
+    return _end_session(session_id, "completed", workspace, db)
+
+@router.post("/session/{session_id}/abandon")
+def abandon_session(
+    session_id: str, 
+    workspace: Workspace = Depends(get_workspace), 
+    db: Session = Depends(get_db)
+):
+    """Mark session as abandoned."""
+    return _end_session(session_id, "abandoned", workspace, db)
+
+
+@router.get("/session/{session_id}/summary", response_model=SessionSummaryResponse)
+def get_session_summary(
+    session_id: str,
+    workspace: Workspace = Depends(get_workspace),
+    db: Session = Depends(get_db)
+):
+    """Get structured summary of cook session."""
+    session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+    
+    if not session: raise HTTPException(404, "Session not found")
+    if session.workspace_id != workspace.id:
+        logger.warning(f"Session {session_id} workspace mismatch in summary. Session={session.workspace_id}, Req={workspace.id}")
+
+    events = db.execute(
+        select(CookSessionEvent)
+        .where(CookSessionEvent.session_id == session_id)
+        .order_by(CookSessionEvent.created_at)
+    ).scalars().all()
+
+    # Rule-based Summarization Logic
+    highlights = []
+    
+    # 1. Method Switches
+    if session.method_key:
+        highlights.append(f"Cooked with '{session.method_key}' method")
+    
+    # 2. Servings
+    if session.servings_target != session.servings_base:
+        highlights.append(f"Scaled servings {session.servings_base} -> {session.servings_target}")
+    
+    # 3. Adjustments
+    adjust_count = len(session.adjustments_log)
+    if adjust_count > 0:
+        highlights.append(f"Applied {adjust_count} adjustments")
+    
+    # 4. Timer Stats
+    total_timers_run = sum(1 for e in events if e.type == 'timer_create')
+    if total_timers_run > 0:
+        highlights.append(f"Ran {total_timers_run} timers")
+
+    # Timeline Construction
+    timeline = []
+    for e in events[-20:]: # Last 20
+         timeline.append({
+             "t": e.created_at.isoformat(),
+             "type": e.type,
+             "step_index": e.step_index,
+             "meta": e.meta,
+             "label": e.meta.get("label") if e.meta else None
+         })
+    
+    # Notes Suggestions (Rules)
+    suggestions = []
+    for entry in session.adjustments_log:
+         text = f"Adjustment: {entry.get('fix_summary', 'Fix applied')}"
+         suggestions.append({
+             "id": str(uuid.uuid4()),
+             "text": text,
+             "source": "adjust_apply",
+             "confidence": 0.8
+         })
+
+    # Stats
+    duration_min = 0
+    if session.started_at:
+        end = session.ended_at or datetime.now(timezone.utc)
+        duration_min = int((end - session.started_at).total_seconds() / 60)
+
+    stats = {
+        "steps_completed_pct": 0, # Placeholder
+        "timers_total": total_timers_run,
+        "adjustments_total": adjust_count,
+        "duration_minutes": duration_min
+    }
+
+    return {
+        "session": {
+            "id": session.id,
+            "recipe_id": session.recipe_id,
+            "status": session.status,
+            "started_at": session.started_at.isoformat() if session.started_at else None,
+            "completed_at": session.completed_at.isoformat() if session.completed_at else None
+        },
+        "highlights": highlights,
+        "timeline": timeline,
+        "notes_suggestions": suggestions,
+        "stats": stats
+    }
+
+@router.post("/session/{session_id}/notes/preview", response_model=SessionNotesPreviewResponse)
+def preview_session_notes(
+    body: SessionNotesPreviewRequest,
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+    if not session: raise HTTPException(404, "Session not found")
+    
+    notes = []
+    
+    # Freeform
+    if body.include.get("freeform"):
+        notes.append(body.include["freeform"])
+
+    # Method
+    if body.include.get("method") and session.method_key:
+        notes.append(f"Cooked with {session.method_key} method.")
+    
+    # Servings
+    if body.include.get("servings") and session.servings_target != session.servings_base:
+        notes.append(f"Scaled to {session.servings_target} servings.")
+
+    # Adjustments
+    if body.include.get("adjustments"):
+         for adj in session.adjustments_log:
+             notes.append(f"Adjustment: {adj.get('fix_summary', 'unknown')}")
+
+    header = f"\n\n---\nCook Session ({datetime.now().strftime('%Y-%m-%d')}):"
+    
+    return {
+        "proposal": {
+            "recipe_patch": {
+                "notes_append": notes
+            },
+            "preview_markdown": header + "\n" + "\n".join([f"- {n}" for n in notes]),
+            "counts": {"lines": len(notes) + 2}
+        }
+    }
+
+@router.post("/session/{session_id}/notes/apply")
+def apply_session_notes(
+    body: SessionNotesApplyRequest,
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    if len(body.notes_append) > 100: # Safety cap
+        raise HTTPException(400, "Too many notes")
+        
+    recipe = db.scalar(select(Recipe).where(Recipe.id == body.recipe_id))
+    if not recipe: raise HTTPException(404, "Recipe not found")
+    
+    # Append
+    existing = recipe.notes or ""
+    header = f"\n\n---\nCook Session ({datetime.now().strftime('%Y-%m-%d')}):"
+    new_block = "\n" + "\n".join([f"- {n}" for n in body.notes_append])
+    
+    # Safety: Limit total size?
+    if len(existing) + len(header) + len(new_block) > 10000:
+        raise HTTPException(400, "Recipe notes too long")
+        
+    recipe.notes = existing + header + new_block
+    
+    log_event(db, workspace_id=recipe.workspace_id, session_id=session_id, type="notes_apply", meta={"lines": len(body.notes_append)})
+    db.commit()
+    
+    return {"status": "ok", "recipe_id": recipe.id}

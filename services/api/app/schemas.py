@@ -277,6 +277,23 @@ class SessionPatchRequest(BaseModel):
     auto_step_enabled: Optional[bool] = None
     auto_step_mode: Optional[Literal["suggest", "auto_jump"]] = None
 
+class SessionSummaryResponse(BaseModel):
+    session: dict
+    highlights: list[str]
+    timeline: list[dict]
+    notes_suggestions: list[dict]
+    stats: dict
+
+class SessionNotesPreviewRequest(BaseModel):
+    include: dict # { method: bool, servings: bool, adjustments: bool, freeform: str }
+
+class SessionNotesPreviewResponse(BaseModel):
+    proposal: dict # { recipe_patch: { notes_append: [] }, preview_markdown: str, counts: { lines: int } }
+
+class SessionNotesApplyRequest(BaseModel):
+    recipe_id: str
+    notes_append: list[str]
+
 # --- Method Switcher Schemas ---
 
 class MethodOption(BaseModel):

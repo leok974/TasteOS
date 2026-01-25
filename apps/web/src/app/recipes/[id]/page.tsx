@@ -929,7 +929,7 @@ export default function RecipeDetailPage() {
                 <div className="mx-auto max-w-2xl">
                     <button
                         type="button"
-                        onClick={() => setCookOpen(true)}
+                        onClick={handleStartCooking}
                         className="flex w-full items-center justify-center gap-3 rounded-[2rem] bg-stone-900 py-5 text-xs font-black uppercase tracking-[0.3em] text-white shadow-2xl transition-all active:scale-95 hover:bg-stone-800"
                     >
                         <Flame className="h-5 w-5 text-amber-400" />

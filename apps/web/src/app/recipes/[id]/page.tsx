@@ -712,13 +712,22 @@ export default function RecipeDetailPage() {
 
     // Handle session end
     const handleSessionEnd = (action: 'complete' | 'abandon') => {
-        if (!session) return;
+        console.log('[CookMode] handleSessionEnd called:', action);
+        if (!session) {
+            console.log('[CookMode] No session active, ignoring');
+            return;
+        }
+        console.log('[CookMode] Mutating session end...', session.id);
         endSessionMutation.mutate(
             { sessionId: session.id, action },
             {
                 onSuccess: () => {
+                    console.log('[CookMode] Session end success, closing cook mode');
                     setCookOpen(false);
                 },
+                onError: (e) => {
+                    console.error('[CookMode] Session end failed:', e);
+                }
             }
         );
     };

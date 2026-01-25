@@ -242,7 +242,7 @@ function CookModeOverlay({
     onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
     onSessionEnd?: (action: 'complete' | 'abandon') => void;
 }) {
-    console.log('[CookModeOverlay] Render:', { open, stepIdx });
+
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
 
@@ -768,17 +768,14 @@ export default function RecipeDetailPage() {
     // Only sync if we're not currently patching (avoids race condition/oscillation)
     useEffect(() => {
         if (session && cookOpen && !patchSessionMutation.isPending) {
-            console.log('[CookMode] Syncing step from session:', session.current_step_index);
+
             setStepIdx(session.current_step_index);
         }
     }, [session, cookOpen, patchSessionMutation.isPending]);
 
     // Sync step index to session when changed
     const handleStepChange = (newStepIdx: number) => {
-        console.group('[CookMode] handleStepChange trace');
-        console.log('Value:', newStepIdx);
-        console.trace();
-        console.groupEnd();
+
 
         setStepIdx(newStepIdx);
         if (session) {

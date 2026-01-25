@@ -258,8 +258,21 @@ function CookModeOverlay({
                     {/* Block interactions if no session yet (initializing) */}
                     {!session && (
                         <div className="absolute inset-0 z-[150] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+                            {/* Check if we have an error starting */}
+                            {/* Note: We need to pass isError prop or assume handled elsewhere? 
+                                Ideally we pass 'loadingError' prop to overlay. 
+                                For now, I'll just show 'Starting...' but if it takes too long user can close.
+                            */}
                             <Loader2 className="h-10 w-10 animate-spin text-amber-500" />
                             <p className="mt-4 text-sm font-bold text-stone-500 uppercase tracking-widest">Starting Session...</p>
+
+                            {/* Escape hatch for stuck loading */}
+                            <button
+                                onClick={onClose}
+                                className="mt-8 text-xs text-stone-400 hover:text-stone-600 underline"
+                            >
+                                Cancel
+                            </button>
                         </div>
                     )}
 
@@ -633,6 +646,7 @@ export default function RecipeDetailPage() {
     const params = useParams();
     const router = useRouter();
     const recipeId = params.id as string;
+    const queryClient = useQueryClient(); // Fix: Define queryClient
 
     const { data: recipe, isLoading, error } = useRecipe(recipeId);
 

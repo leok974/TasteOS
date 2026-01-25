@@ -248,6 +248,7 @@ function CookModeOverlay({
     onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
     onSessionEnd?: (action: 'complete' | 'abandon') => void;
 }) {
+    console.log('[CookModeOverlay] Render:', { open, stepIdx });
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
 

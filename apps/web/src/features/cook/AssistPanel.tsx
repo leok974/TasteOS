@@ -75,12 +75,16 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
     };
 
     return (
-        <Sheet open={open} onOpenChange={setOpen}>
+        <Sheet open={open} onOpenChange={(newOpen) => {
+            console.log('[AssistPanel] Sheet state changing:', { from: open, to: newOpen });
+            setOpen(newOpen);
+        }}>
             <SheetTrigger asChild>
                 <Button
                     variant="outline"
                     className="h-11 rounded-2xl border-amber-100/60 hover:bg-amber-50/60"
                     data-testid="assist-open"
+                    onClick={() => console.log('[AssistPanel] Button clicked')}
                 >
                     <Sparkles className="h-4 w-4 mr-2" />
                     Cooking Assist

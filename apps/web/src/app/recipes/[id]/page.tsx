@@ -15,6 +15,7 @@ import {
     X,
     Sparkles,
     RefreshCw,
+    Check,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
-import { useCookSessionActive, useCookSessionStart, useCookSessionPatch } from '@/features/cook/hooks';
+import { useCookSessionActive, useCookSessionStart, useCookSessionPatch, useCookSessionEnd } from '@/features/cook/hooks';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { TimerManager } from '@/features/cook/TimerManager';
 import { AssistPanel } from '@/features/cook/AssistPanel';
 
@@ -221,6 +232,7 @@ function CookModeOverlay({
     session,
     onTimerCreate,
     onTimerAction,
+    onSessionEnd,
 }: {
     open: boolean;
     onClose: () => void;
@@ -234,7 +246,9 @@ function CookModeOverlay({
     session?: { id: string; timers: Record<string, any> } | null;
     onTimerCreate?: (label: string, durationSec: number) => void;
     onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
+    onSessionEnd?: (action: 'complete' | 'abandon') => void;
 }) {
+    const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const progress = steps.length > 1 ? Math.round(((stepIdx + 1) / steps.length) * 100) : 0;
 
     return (
@@ -260,6 +274,25 @@ function CookModeOverlay({
                             >
                                 <X className="h-5 w-5" />
                             </button>
+
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                                    onClick={() => setShowAbandonConfirm(true)}
+                                >
+                                    Abandon
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="h-9 rounded-xl bg-green-600 hover:bg-green-700"
+                                    onClick={() => onSessionEnd?.('complete')}
+                                >
+                                    <Check className="h-4 w-4 mr-1" />
+                                    Complete
+                                </Button>
+                            </div>
                             <div className="flex items-center gap-2">
                                 <Badge className="rounded-full bg-amber-100/70 text-amber-950 hover:bg-amber-100/70" variant="secondary">
                                     Cook Mode
@@ -358,13 +391,6 @@ function CookModeOverlay({
                                     />
                                 </CardContent>
                             </Card>
-
-                            {/* Assist Panel */}
-                            <Card className="rounded-[2.5rem] border-amber-100/50 bg-white shadow-sm">
-                                <CardContent className="pt-6">
-                                    <AssistPanel recipeId={recipe.id} stepIndex={stepIdx} />
-                                </CardContent>
-                            </Card>
                         </div>
                     </div>
 
@@ -394,6 +420,27 @@ function CookModeOverlay({
                             </Button>
                         </div>
                     </div>
+
+                    {/* Abandon Confirmation Dialog */}
+                    <AlertDialog open={showAbandonConfirm} onOpenChange={setShowAbandonConfirm}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Abandon Cooking Session?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will end your cooking session and mark it as abandoned. Your progress will be saved but you'll need to start a new session to continue.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => {
+                                    onSessionEnd?.('abandon');
+                                    setShowAbandonConfirm(false);
+                                }}>
+                                    Abandon Session
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 </motion.div>
             )}
         </AnimatePresence>
@@ -584,9 +631,10 @@ export default function RecipeDetailPage() {
     const [stepIdx, setStepIdx] = useState(0);
 
     // Cook session hooks
-    const { data: session, isLoading: sessionLoading } = useCookSessionActive(cookOpen ? recipeId : undefined);
+    const { data: session, isLoading: sessionLoading } = useCookSessionActive(recipeId);
     const startSessionMutation = useCookSessionStart();
-    const patchSessionMutation = useCookSessionPatch(session?.id);
+    const patchSessionMutation = useCookSessionPatch();
+    const endSessionMutation = useCookSessionEnd();
     const sessionStarted = useRef(false);
 
     // Auto-start session when cook mode opens
@@ -644,6 +692,19 @@ export default function RecipeDetailPage() {
                 },
             });
         }
+    };
+
+    // Handle session end
+    const handleSessionEnd = (action: 'complete' | 'abandon') => {
+        if (!session) return;
+        endSessionMutation.mutate(
+            { sessionId: session.id, action },
+            {
+                onSuccess: () => {
+                    setCookModeOpen(false);
+                },
+            }
+        );
     };
 
     // Convert API steps to CookStep format

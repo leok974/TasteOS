@@ -12,6 +12,7 @@ import logging
 import asyncio
 import queue
 import json
+import hashlib
 from typing import Optional, List
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,7 @@ from ..db import get_db
 from ..deps import get_workspace
 from ..models import Workspace, CookSession, Recipe
 from ..services.ai_service import ai_service
+from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
 from ..services.auto_step_from_events import calculate_auto_step_from_events
@@ -38,7 +40,8 @@ from ..schemas import (
     SessionResponse, SessionPatchRequest, SessionWhyResponse, StepSignal,
     AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
     AdjustUndoRequest, CookSessionEventOut,
-    SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest
+    SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest,
+    SummaryPolishRequest, SummaryPolishResponse, PolishedSummary
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -1144,6 +1147,32 @@ def get_session_why(session_id: str, db: Session = Depends(get_db)):
 
 # --- Completion & Summary Endpoints (v10) ---
 
+def _build_session_facts(session: CookSession, recipe: Recipe, events: list, freeform: str = None) -> dict:
+    adjustments = []
+    if session.adjustments_log:
+         for adj in session.adjustments_log:
+             if adj.get("undone_at"): continue
+             adjustments.append({
+                 "kind": adj.get("kind"),
+                 "title": adj.get("title", ""),
+                 "fix_summary": adj.get("fix_summary", "")
+             })
+
+    timers_run = []
+    for e in events:
+        if e.type == "timer_create":
+            timers_run.append(e.meta)
+
+    return {
+        "recipe_title": recipe.title if recipe else "Unknown",
+        "method_key": session.method_key,
+        "servings_base": session.servings_base,
+        "servings_target": session.servings_target,
+        "adjustments": adjustments,
+        "timers_run": timers_run,
+        "user_freeform_note": freeform or ""
+    }
+
 def _end_session(session_id: str, reason: str, workspace: Workspace, db: Session):
     session = db.scalar(select(CookSession).where(CookSession.id == session_id))
     
@@ -1283,33 +1312,113 @@ def get_session_summary(
         "stats": stats
     }
 
+@router.post("/session/{session_id}/summary/polish", response_model=SummaryPolishResponse)
+def polish_session_summary(
+    session_id: str,
+    body: SummaryPolishRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    """Generate a polished, AI-powered summary of the session."""
+    session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+    if not session: raise HTTPException(404, "Session not found")
+    if session.workspace_id != workspace.id: raise HTTPException(404, "Session not found")
+    
+    recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+    
+    events = db.execute(
+        select(CookSessionEvent)
+        .where(CookSessionEvent.session_id == session_id)
+        .order_by(CookSessionEvent.created_at)
+    ).scalars().all()
+    
+    facts = _build_session_facts(session, recipe, events)
+    
+    # Call Gemini
+    polished = polish_summary(facts, style=body.style, max_bullets=body.max_bullets)
+    
+    # Log usage
+    log_event(
+        db, 
+        workspace_id=workspace.id, 
+        session_id=session.id, 
+        type="summary_polish", 
+        meta={"model": "gemini-2.0-flash-exp", "ok": polished.confidence > 0.5}
+    )
+    db.commit()
+
+    inputs_hash = hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()
+    
+    return SummaryPolishResponse(
+        polished=polished,
+        raw_inputs_hash=inputs_hash,
+        model="gemini-2.0-flash-exp"
+    )
+
+
 @router.post("/session/{session_id}/notes/preview", response_model=SessionNotesPreviewResponse)
 def preview_session_notes(
     body: SessionNotesPreviewRequest,
     session_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
 ):
     session = db.scalar(select(CookSession).where(CookSession.id == session_id))
     if not session: raise HTTPException(404, "Session not found")
+    if session.workspace_id != workspace.id: raise HTTPException(404, "Session not found")
     
     notes = []
     
-    # Freeform
-    if body.include.get("freeform"):
-        notes.append(body.include["freeform"])
+    # v10.1: AI Polish Integration
+    if body.use_ai:
+        recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+        events = db.execute(
+            select(CookSessionEvent)
+            .where(CookSessionEvent.session_id == session_id)
+        ).scalars().all()
+        
+        facts = _build_session_facts(session, recipe, events, freeform=body.freeform)
+        polished = polish_summary(facts, style=body.style)
+        
+        # Use AI output for notes structure
+        if polished.next_time:
+            notes.append("Next time:")
+            for nt in polished.next_time:
+                notes.append(f"  - {nt}")
+        
+        # Include key events/bullets if requested roughly (mapped to 'adjustments' or generic)
+        if body.include.get("adjustments") and polished.bullets:
+            notes.append("Session highlights:")
+            for b in polished.bullets:
+                notes.append(f"  - {b}")
+                
+        # If confidence is low, maybe fallback? 
+        # But Polish Summary should have handled fallback internally.
 
-    # Method
-    if body.include.get("method") and session.method_key:
-        notes.append(f"Cooked with {session.method_key} method.")
-    
-    # Servings
-    if body.include.get("servings") and session.servings_target != session.servings_base:
-        notes.append(f"Scaled to {session.servings_target} servings.")
+    else:
+        # v10: Rules-based (Legacy)
+        
+        # Freeform - Support both v10 (in include) and v10.1 (top-level)
+        user_note = body.freeform
+        if not user_note and isinstance(body.include.get("freeform"), str):
+            user_note = body.include["freeform"]
+            
+        if user_note:
+            notes.append(user_note)
 
-    # Adjustments
-    if body.include.get("adjustments"):
-         for adj in session.adjustments_log:
-             notes.append(f"Adjustment: {adj.get('fix_summary', 'unknown')}")
+        # Method
+        if body.include.get("method") and session.method_key:
+            notes.append(f"Cooked with {session.method_key} method.")
+        
+        # Servings
+        if body.include.get("servings") and session.servings_target != session.servings_base:
+            notes.append(f"Scaled to {session.servings_target} servings.")
+
+        # Adjustments
+        if body.include.get("adjustments"):
+             for adj in session.adjustments_log:
+                 if adj.get("undone_at"): continue
+                 notes.append(f"Adjustment: {adj.get('fix_summary', 'unknown')}")
 
     header = f"\n\n---\nCook Session ({datetime.now().strftime('%Y-%m-%d')}):"
     

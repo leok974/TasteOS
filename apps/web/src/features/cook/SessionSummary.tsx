@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Check, ChevronRight, FileText, Save, Utensils } from 'lucide-react';
+import { Check, ChevronRight, FileText, Save, Utensils, Sparkles, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
-import { useCookSessionSummary, useCookNotesPreview, useCookNotesApply } from './hooks';
+import { useCookSessionSummary, useCookNotesPreview, useCookNotesApply, useCookSummaryPolish } from './hooks';
 import { cn } from '@/lib/cn';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,6 +25,12 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
     const [includeServings, setIncludeServings] = useState(true);
     const [includeAdjustments, setIncludeAdjustments] = useState(true);
     const [freeformNote, setFreeformNote] = useState('');
+
+    // AI State
+    const [useAI, setUseAI] = useState(false);
+    const [aiStyle, setAiStyle] = useState('concise');
+    const [polishedData, setPolishedData] = useState<any>(null);
+    const polishMutation = useCookSummaryPolish();
     
     // Preview/Save State
     const [preview, setPreview] = useState<any>(null);
@@ -40,9 +46,32 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
 
     const { session, highlights, stats, notes_suggestions } = data;
 
+    const handleToggleAI = (checked: boolean) => {
+        setUseAI(checked);
+        if (checked && !polishedData) {
+             generatePolish(aiStyle);
+        }
+    };
+
+    const generatePolish = (style: string) => {
+        setAiStyle(style);
+        polishMutation.mutate({ sessionId, style }, {
+            onSuccess: (resp) => {
+                setPolishedData(resp.polished);
+            },
+            onError: () => {
+                toast({ title: "AI Polish Failed", description: "Falling back to standard summary.", variant: "destructive" });
+                setUseAI(false);
+            }
+        });
+    }
+
     const handlePreview = () => {
         previewMutation.mutate({
             sessionId,
+            use_ai: useAI,
+            style: aiStyle,
+            freeform: freeformNote,
             include: {
                 method: includeMethod,
                 servings: includeServings,
@@ -164,39 +193,105 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
 
             {/* Notes Section */}
             <div className="space-y-4">
-                 <div className="flex items-center gap-2">
-                     <FileText className="h-5 w-5 text-amber-600" />
-                     <h3 className="font-bold text-lg text-stone-800">Save to Recipe Notes?</h3>
+                 <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-2">
+                         <FileText className="h-5 w-5 text-amber-600" />
+                         <h3 className="font-bold text-lg text-stone-800">Save to Recipe Notes?</h3>
+                     </div>
+                     
+                     {/* AI Toggle */}
+                     <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
+                         <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                         <label htmlFor="ai-polish" className="text-xs font-bold text-indigo-900 cursor-pointer">
+                             Polish with AI
+                         </label>
+                         <Checkbox 
+                            id="ai-polish" 
+                            className="bg-white border-indigo-200 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 h-4 w-4"
+                            checked={useAI}
+                            onChange={(e) => handleToggleAI(e.target.checked)}
+                         />
+                     </div>
                  </div>
+
+                 {/* AI Polished Preview */}
+                 {useAI && (
+                     <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-3 animate-in slide-in-from-top-2">
+                         {polishMutation.isPending ? (
+                             <div className="flex items-center gap-2 text-indigo-600 text-sm">
+                                 <Wand2 className="h-4 w-4 animate-spin" />
+                                 Polishing summary...
+                             </div>
+                         ) : polishedData ? (
+                             <>
+                                 <div className="flex justify-between items-start">
+                                     <h4 className="font-bold text-indigo-900 text-sm">{polishedData.title}</h4>
+                                     <div className="flex gap-1">
+                                         {['concise', 'friendly', 'chef'].map(s => (
+                                             <button 
+                                                key={s}
+                                                onClick={() => generatePolish(s)}
+                                                className={cn(
+                                                    "text-[10px] px-2 py-1 rounded-full capitalize border",
+                                                    aiStyle === s 
+                                                        ? "bg-indigo-600 text-white border-indigo-600" 
+                                                        : "bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                                )}
+                                             >
+                                                 {s}
+                                             </button>
+                                         ))}
+                                     </div>
+                                 </div>
+                                 <p className="text-sm text-indigo-800 italic">{polishedData.tldr}</p>
+                                 
+                                 {polishedData.next_time?.length > 0 && (
+                                     <div className="space-y-1">
+                                         <p className="text-xs font-bold text-indigo-900 uppercase tracking-widest">Suggestions</p>
+                                         <ul className="text-sm text-indigo-800 list-disc list-inside">
+                                             {polishedData.next_time.map((nt: string, i: number) => (
+                                                 <li key={i}>{nt}</li>
+                                             ))}
+                                         </ul>
+                                     </div>
+                                 )}
+                             </>
+                         ) : null}
+                     </div>
+                 )}
                  
                  <div className="space-y-3">
-                     <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent hover:bg-stone-50 transition-colors">
-                         <Checkbox 
-                            id="inc-method" 
-                            checked={includeMethod} 
-                            onChange={(e) => setIncludeMethod(e.target.checked)} 
-                         />
-                         <div className="grid gap-1.5 leading-none">
-                             <label htmlFor="inc-method" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                 Include Method
-                             </label>
-                             <p className="text-xs text-stone-500">Record that you used the {data.session?.method_key || 'Default'} method.</p>
+                     {!useAI && (
+                        <>
+                         <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent hover:bg-stone-50 transition-colors">
+                             <Checkbox 
+                                id="inc-method" 
+                                checked={includeMethod} 
+                                onChange={(e) => setIncludeMethod(e.target.checked)} 
+                             />
+                             <div className="grid gap-1.5 leading-none">
+                                 <label htmlFor="inc-method" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                     Include Method
+                                 </label>
+                                 <p className="text-xs text-stone-500">Record that you used the {data.session?.method_key || 'Default'} method.</p>
+                             </div>
                          </div>
-                     </div>
 
-                     <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent hover:bg-stone-50 transition-colors">
-                         <Checkbox 
-                            id="inc-servings" 
-                            checked={includeServings} 
-                            onChange={(e) => setIncludeServings(e.target.checked)} 
-                         />
-                         <div className="grid gap-1.5 leading-none">
-                             <label htmlFor="inc-servings" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                 Include Servings
-                             </label>
-                             <p className="text-xs text-stone-500">Record scaling to {data.session?.servings_target || 1} servings.</p>
+                         <div className="flex items-start gap-3 p-3 rounded-lg border border-transparent hover:bg-stone-50 transition-colors">
+                             <Checkbox 
+                                id="inc-servings" 
+                                checked={includeServings} 
+                                onChange={(e) => setIncludeServings(e.target.checked)} 
+                             />
+                             <div className="grid gap-1.5 leading-none">
+                                 <label htmlFor="inc-servings" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                     Include Servings
+                                 </label>
+                                 <p className="text-xs text-stone-500">Record scaling to {data.session?.servings_target || 1} servings.</p>
+                             </div>
                          </div>
-                     </div>
+                        </>
+                     )}
                      
                      {notes_suggestions.map((s: any) => (
                          <div key={s.id} className="flex items-start gap-3 p-3 rounded-lg border border-transparent hover:bg-stone-50 transition-colors">

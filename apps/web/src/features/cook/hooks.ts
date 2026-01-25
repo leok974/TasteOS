@@ -406,12 +406,29 @@ export function useCookSessionSummary(sessionId: string | undefined, enabled: bo
     });
 }
 
+export function useCookSummaryPolish() {
+    return useMutation({
+        mutationFn: async ({ sessionId, style }: { sessionId: string, style: string }) => {
+            return cookFetch<any>(`/cook/session/${sessionId}/summary/polish`, {
+                method: "POST",
+                body: JSON.stringify({ style, include_timeline: false })
+            });
+        }
+    });
+}
+
 export function useCookNotesPreview() {
     return useMutation({
-        mutationFn: async ({ sessionId, include }: { sessionId: string, include: any }) => {
+        mutationFn: async ({ sessionId, include, use_ai, style, freeform }: { 
+            sessionId: string; 
+            include: any;
+            use_ai?: boolean;
+            style?: string;
+            freeform?: string;
+        }) => {
             return cookFetch<any>(`/cook/session/${sessionId}/notes/preview`, {
                 method: "POST",
-                body: JSON.stringify({ include })
+                body: JSON.stringify({ include, use_ai, style, freeform })
             });
         }
     });

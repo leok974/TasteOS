@@ -284,8 +284,31 @@ class SessionSummaryResponse(BaseModel):
     notes_suggestions: list[dict]
     stats: dict
 
+# --- Summary Polish (v10.1) ---
+
+class PolishedSummary(BaseModel):
+    title: str
+    tldr: str = Field(..., max_length=140)
+    bullets: list[str]
+    next_time: list[str] = Field(..., max_length=4)
+    warnings: list[str] = Field(..., max_length=3)
+    confidence: float
+    
+class SummaryPolishRequest(BaseModel):
+    style: Literal["concise", "friendly", "chef"] = "concise"
+    include_timeline: bool = False
+    max_bullets: int = 6
+
+class SummaryPolishResponse(BaseModel):
+    polished: PolishedSummary
+    raw_inputs_hash: str
+    model: Optional[str]
+
 class SessionNotesPreviewRequest(BaseModel):
     include: dict # { method: bool, servings: bool, adjustments: bool, freeform: str }
+    use_ai: bool = False
+    style: Literal["concise", "friendly", "chef"] = "concise"
+    freeform: Optional[str] = None
 
 class SessionNotesPreviewResponse(BaseModel):
     proposal: dict # { recipe_patch: { notes_append: [] }, preview_markdown: str, counts: { lines: int } }

@@ -31,8 +31,13 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
     const assistMutation = useCookAssist();
 
     const handleSubstitute = () => {
-        if (!ingredient.trim()) return;
+        console.log('[AssistPanel] handleSubstitute called', { ingredient });
+        if (!ingredient.trim()) {
+            console.log('[AssistPanel] No ingredient, returning');
+            return;
+        }
 
+        console.log('[AssistPanel] Calling substitute mutation');
         assistMutation.mutate(
             {
                 recipe_id: recipeId,
@@ -41,12 +46,19 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
                 payload: { ingredient: ingredient.trim() },
             },
             {
-                onSuccess: (data) => setResult(data),
+                onSuccess: (data) => {
+                    console.log('[AssistPanel] Substitute success:', data);
+                    setResult(data);
+                },
+                onError: (error) => {
+                    console.error('[AssistPanel] Substitute error:', error);
+                }
             }
         );
     };
 
     const handleMacros = () => {
+        console.log('[AssistPanel] handleMacros called');
         assistMutation.mutate(
             {
                 recipe_id: recipeId,
@@ -55,12 +67,19 @@ export function AssistPanel({ recipeId, stepIndex }: AssistPanelProps) {
                 payload: {},
             },
             {
-                onSuccess: (data) => setResult(data),
+                onSuccess: (data) => {
+                    console.log('[AssistPanel] Macros success:', data);
+                    setResult(data);
+                },
+                onError: (error) => {
+                    console.error('[AssistPanel] Macros error:', error);
+                }
             }
         );
     };
 
     const handleFix = (problem: string) => {
+        console.log('[AssistPanel] handleFix called', { problem });
         assistMutation.mutate(
             {
                 recipe_id: recipeId,

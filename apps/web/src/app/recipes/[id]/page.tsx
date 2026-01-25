@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import confetti from "canvas-confetti";
 import { useParams, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -247,8 +246,12 @@ function CookModeOverlay({
     const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
 
-    const handleComplete = () => {
+    const handleComplete = async () => {
         // Trigger celebration confetti
+        // Dynamic import to avoid SSR/Build resolution issues
+        const confettiModule = await import('canvas-confetti');
+        const confetti = confettiModule.default || confettiModule;
+
         const end = Date.now() + 1000;
         const colors = ['#f59e0b', '#d97706', '#fbbf24']; // Amber/Gold scheme
 

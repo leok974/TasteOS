@@ -376,9 +376,23 @@ function CookModeOverlay({
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
     const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
 
+    // Sync external step index changes (e.g. from Auto-Jump or other devices)
+    useEffect(() => {
+        if (session?.current_step_index != null && session.current_step_index !== stepIdx) {
+            setStepIdx(session.current_step_index);
+        }
+    }, [session?.current_step_index, stepIdx, setStepIdx]);
+
     const handleAutoStepToggle = async (enabled: boolean) => {
         if (!session) return;
         await apiPatchSession(session.id, { auto_step_enabled: enabled });
+        mutate(`/api/cook/session/${session.id}`);
+    };
+
+    const handleAutoModeToggle = async () => {
+        if (!session) return;
+        const newMode = session.auto_step_mode === 'auto_jump' ? 'suggest' : 'auto_jump';
+        await apiPatchSession(session.id, { auto_step_mode: newMode });
         mutate(`/api/cook/session/${session.id}`);
     };
 
@@ -497,6 +511,14 @@ function CookModeOverlay({
                                                 checked={session.auto_step_enabled} 
                                                 onCheckedChange={handleAutoStepToggle} 
                                             />
+                                            {session.auto_step_enabled && (
+                                                <button 
+                                                    onClick={handleAutoModeToggle}
+                                                    className="ml-1 text-[10px] uppercase font-black text-amber-600 border-l border-stone-200 pl-2 hover:text-amber-800"
+                                                >
+                                                    {session.auto_step_mode === 'auto_jump' ? 'Jump' : 'Suggest'}
+                                                </button>
+                                            )}
                                         </div>
                                         <MethodSwitcher
                                             sessionId={session.id}
@@ -580,6 +602,40 @@ function CookModeOverlay({
 
                     {/* tabs & content */}
                     <div className="relative flex-1 overflow-y-auto px-6 pb-28 pt-6 no-scrollbar">
+                        {/* Auto Step Suggestion Banner */}
+                        <AnimatePresence>
+                            {session?.auto_step_enabled && 
+                             session.auto_step_mode !== 'auto_jump' &&
+                             session.auto_step_suggested_index != null && 
+                             session.auto_step_suggested_index !== stepIdx && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -20, height: 0 }}
+                                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                                    exit={{ opacity: 0, y: -20, height: 0 }}
+                                    className="mb-4 overflow-hidden"
+                                >
+                                    <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/50 p-4 shadow-sm flex items-center justify-between gap-4">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 text-amber-900 font-bold text-sm mb-1">
+                                                <Sparkles className="h-4 w-4 text-amber-500 fill-amber-500" />
+                                                Suggested: Step {session.auto_step_suggested_index + 1}
+                                            </div>
+                                            <div className="text-xs text-amber-700/80 line-clamp-1 italic">
+                                                {session.auto_step_reason ? `Because: ${session.auto_step_reason}` : "Based on recent activity"}
+                                            </div>
+                                        </div>
+                                        <Button 
+                                            size="sm" 
+                                            className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-md whitespace-nowrap"
+                                            onClick={() => setStepIdx(session.auto_step_suggested_index!)}
+                                        >
+                                            Jump Here
+                                        </Button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
                         {/* Tab Switcher */}
                         <div className="sticky top-0 z-10 -mx-6 mb-4 bg-gradient-to-b from-[#FAF9F6] via-[#FAF9F6]/90 to-transparent px-6 pb-3 pt-2">
                             <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-200/50 mb-4">

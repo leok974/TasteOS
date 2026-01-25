@@ -30,12 +30,12 @@ from ..models import Workspace, CookSession, Recipe
 from ..services.ai_service import ai_service
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
-from ..services.auto_step import calculate_auto_step
+from ..services.auto_step_from_events import calculate_auto_step_from_events
 from ..services.events import log_event
 from ..models import CookSessionEvent
 from ..schemas import (
     MethodListResponse, MethodPreviewRequest, MethodApplyRequest, MethodPreviewResponse,
-    SessionResponse, SessionPatchRequest,
+    SessionResponse, SessionPatchRequest, SessionWhyResponse, StepSignal,
     AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
     CookSessionEventOut
 )
@@ -376,8 +376,8 @@ def patch_session(
         if interaction_step_index is not None:
              session.last_interaction_step_index = interaction_step_index
              
-    # Auto Step Calculation
-    calculate_auto_step(session, db, now)
+    # Auto Step Calculation (V7 - Event Driven)
+    calculate_auto_step_from_events(session, db, now)
     
     session.updated_at = now
     db.commit()
@@ -875,15 +875,15 @@ def apply_adjustment(
     flag_modified(session, "steps_override")
     
     # Update interaction stats
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session.last_interaction_at = now
     if "step_index" in log_entry:
          session.last_interaction_step_index = log_entry["step_index"]
     
-    # Recalculate auto step
-    calculate_auto_step(session, db, now)
+    # Recalculate auto step (V7)
+    calculate_auto_step_from_events(session, db, now)
     
-    session.updated_at = datetime.utcnow()
+    session.updated_at = now
     db.commit()
     db.refresh(session)
     
@@ -921,3 +921,53 @@ def session_to_response(session: CookSession) -> SessionResponse:
 def _confidence_to_float(conf_str: str) -> float:
     mapping = {"high": 0.9, "medium": 0.6, "low": 0.3}
     return mapping.get(conf_str, 0.5)
+
+def event_to_signal(e: CookSessionEvent) -> StepSignal:
+    now = datetime.now(timezone.utc)
+    # Ensure timezone aware subtraction
+    if e.created_at.tzinfo is None:
+        e.created_at = e.created_at.replace(tzinfo=timezone.utc)
+        
+    age = (now - e.created_at).total_seconds()
+    
+    return StepSignal(
+        type=e.type,
+        step_index=e.step_index,
+        meta=e.meta or {},
+        age_sec=int(age)
+    )
+
+@router.get("/session/{session_id}/why", response_model=SessionWhyResponse)
+def get_session_why(session_id: str, db: Session = Depends(get_db)):
+    """Explain why the auto-step is suggesting a certain step."""
+    from sqlalchemy import desc
+    from ..models import CookSessionEvent, CookSession
+
+    # 1. Get Session
+    session = db.scalar(
+        select(CookSession).where(CookSession.id == session_id)
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=15)
+    
+    events = db.execute(
+        select(CookSessionEvent)
+        .where(
+            CookSessionEvent.session_id == session_id,
+            CookSessionEvent.created_at >= cutoff
+        )
+        .order_by(desc(CookSessionEvent.created_at))
+        .limit(20) # Top 20 is enough for "signals"
+    ).scalars().all()
+    
+    signals = [event_to_signal(e) for e in events]
+    
+    return SessionWhyResponse(
+        suggested_step_index=session.auto_step_suggested_index,
+        confidence=session.auto_step_confidence or 0.0,
+        reason=session.auto_step_reason,
+        signals=signals
+    )

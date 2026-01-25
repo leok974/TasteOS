@@ -1,76 +1,93 @@
 "use client";
 
-import { useCookSessionLog } from "../hooks";
-import { formatDistanceToNow } from "date-fns";
-import { Loader2 } from "lucide-react";
+import { useCookSessionWhy } from "../hooks";
+import { Loader2, TrendingUp, Activity } from "lucide-react";
 
 export function WhyPanel({ sessionId }: { sessionId: string }) {
-    const { data: events, isLoading, error } = useCookSessionLog(sessionId);
+    const { data, isLoading, error } = useCookSessionWhy(sessionId, true);
 
-    if (isLoading) return <div className="flex justify-center p-4"><Loader2 className="h-4 w-4 animate-spin" /></div>;
+    if (isLoading) return <div className="p-4"><Loader2 className="animate-spin h-4 w-4" /></div>;
     
-    if (error) return <div className="text-sm text-red-500 p-4">Failed to load history: {error.message}</div>;
-
-    if (!events?.length) {
+    if (error) {
         return (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-                <div className="text-sm text-muted-foreground">No history recorded yet.</div>
+            <div className="p-4 text-sm text-red-500">
+                Error loading data: {(error as Error).message}
+            </div>
+        );
+    }
+
+    if (!data) return <div className="p-4 text-sm text-muted-foreground">No data available (Response empty).</div>;
+
+    const signals = data.signals || [];
+
+    if (!signals.length) {
+        return (
+            <div className="p-4 text-sm text-muted-foreground italic">
+                No recent activity signals found.
             </div>
         );
     }
 
     return (
-        <div className="h-[300px] overflow-y-auto pr-2">
-            <div className="space-y-4 p-1">
-                {events.map((evt: any) => (
-                    <div key={evt.id} className="flex gap-3 text-sm border-l-2 border-border pl-4 py-1">
-                        <div className="flex-1">
-                            <div className="font-semibold text-foreground">{formatEventType(evt.type)}</div>
-                            {evt.meta && Object.keys(evt.meta).length > 0 && (
-                                <div className="text-xs text-muted-foreground mt-1 bg-muted/50 p-1.5 rounded font-mono">
-                                    {formatMeta(evt.type, evt.meta)}
-                                </div>
-                            )}
+        <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+                 <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-primary" />
+                    Suggestion Analysis
+                 </div>
+                 <div className="text-xs bg-muted px-2 py-0.5 rounded-full font-mono">
+                    {Math.round(data.confidence * 100)}% Conf
+                 </div>
+            </div>
+            
+            {data.reason && (
+                 <div className="text-sm font-medium text-primary border border-primary/20 bg-primary/5 rounded p-2">
+                     <div className="text-xs text-muted-foreground mb-0.5 uppercase tracking-wide">Primary Reason</div>
+                     <div className="flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" /> {data.reason}
+                     </div>
+                 </div>
+            )}
+            
+            <div className="space-y-2">
+                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Signals ({signals.length})</div>
+                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {signals.map((sig: any, i) => (
+                        <div key={i} className="text-xs border-l-2 border-border pl-3 py-1">
+                            <div className="flex justify-between items-baseline">
+                                <span className={`font-medium ${sig.step_index === data.suggested_step_index ? 'text-primary' : 'text-foreground'}`}>
+                                    {formatSignalType(sig.type)}
+                                </span>
+                                <span className="text-muted-foreground font-mono">{sig.age_sec}s ago</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5 grid grid-cols-[auto_1fr] gap-2">
+                                <span className="font-mono bg-muted/50 px-1 rounded">Step {sig.step_index + 1}</span>
+                                <span className="truncate">{formatMeta(sig.meta)}</span>
+                            </div>
                         </div>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap pt-1">
-                            {formatDistanceToNow(new Date(evt.created_at), { addSuffix: true })}
-                        </div>
-                    </div>
-                ))}
+                    ))}
+                 </div>
             </div>
         </div>
     );
 }
 
-function formatEventType(type: string) {
+function formatSignalType(type: string) {
     const map: Record<string, string> = {
-        "session_start": "Started Cooking",
-        "step_navigate": "Navigated Step",
-        "check_step": "Checked Item",
-        "uncheck_step": "Unchecked Item",
-        "timer_create": "Created Timer",
         "timer_start": "Started Timer",
-        "timer_pause": "Paused Timer",
         "timer_done": "Timer Finished",
-        "timer_delete": "Deleted Timer",
-        "session_complete": "Finished Cooking",
-        "servings_change": "Changed Servings"
+        "check_step": "Item Checked",
+        "step_navigate": "Manual Navigation",
     };
     return map[type] || type.replace(/_/g, " ");
 }
 
-function formatMeta(type: string, meta: any) {
-    // Custom formatting for specific event types
-    if (type === "step_navigate") {
-        return `Step ${meta.from + 1} -> ${meta.to + 1}`; // 1-based index for display
-    }
-    if (type === "check_step" || type === "uncheck_step") {
-        return `Step ${meta.step + 1}, Item ${meta.bullet + 1}`;
-    }
-    if (type === "timer_create") {
-         return `${meta.label || 'Timer'} (${Math.floor(meta.duration / 60)}m)`;
-    }
-    
-    // Default json dump for debug
-    return JSON.stringify(meta);
+function formatMeta(meta: any) {
+    if (!meta) return "";
+    // Remove complex objects
+    const simple = { ...meta };
+    delete simple.step; 
+    delete simple.bullet;
+    if (Object.keys(simple).length === 0) return "";
+    return JSON.stringify(simple).replace(/["{}]/g, "").replace(/:/g, ": ");
 }

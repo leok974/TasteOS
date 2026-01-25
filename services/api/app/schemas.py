@@ -338,3 +338,15 @@ class CookSessionEventOut(BaseModel):
     
     class Config:
         from_attributes = True
+
+class StepSignal(BaseModel):
+    type: str 
+    step_index: Optional[int]
+    meta: dict
+    age_sec: int
+
+class SessionWhyResponse(BaseModel):
+    suggested_step_index: Optional[int]
+    confidence: float = 0.0
+    reason: Optional[str] = None
+    signals: list[StepSignal] = []

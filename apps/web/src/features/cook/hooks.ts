@@ -138,6 +138,9 @@ export function useCookSessionPatch() {
                     action: "start" | "pause" | "done" | "delete";
                 };
                 servings_target?: number;
+                // Auto-Step V7
+                auto_step_enabled?: boolean;
+                auto_step_mode?: "suggest" | "auto_jump";
             }
         }) => {
             if (!sessionId) throw new Error("Session ID required");
@@ -327,5 +330,24 @@ export function useCookSessionLog(sessionId: string | undefined) {
         queryKey: ["session", sessionId, "history"],
         queryFn: () => cookFetch<any[]>(`/cook/session/${sessionId}/events/recent`),
         enabled: !!sessionId,
+    });
+}
+
+// Hook: Get session why/explanation
+export function useCookSessionWhy(sessionId: string | undefined, enabled: boolean = false) {
+    return useQuery({
+        queryKey: ["session", sessionId, "why"],
+        queryFn: async () => {
+             if (!sessionId) return null;
+             return cookFetch<{
+                 suggested_step_index: number | null;
+                 confidence: number;
+                 reason: string | null;
+                 signals: any[];
+             }>(
+                 `/cook/session/${sessionId}/why`
+             );
+        },
+        enabled: !!sessionId && enabled,
     });
 }

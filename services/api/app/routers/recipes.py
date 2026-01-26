@@ -22,7 +22,7 @@ from app.infra.idempotency import idempotency_precheck, idempotency_store_result
 
 from ..db import get_db
 from ..deps import get_workspace
-from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry
+from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry, RecipeIngredient
 from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate
 from ..settings import settings
 from ..services.events import log_event
@@ -109,7 +109,14 @@ def list_recipes(
     )
     
     if search:
-        query = query.filter(Recipe.title.ilike(f"%{search}%"))
+        search_pattern = f"%{search}%"
+        query = query.outerjoin(RecipeIngredient).filter(
+            or_(
+                Recipe.title.ilike(search_pattern),
+                RecipeIngredient.name.ilike(search_pattern),
+                # Also search tags if available (Json/Array filter depends on DB type, keep simple for now)
+            )
+        ).distinct() # Reduce because join might multiply rows
     
     recipes = (
         query

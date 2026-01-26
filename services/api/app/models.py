@@ -28,8 +28,10 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func, false
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.types import JSON
 
 from .db import Base
+from .orm_types import GUID
 
 
 def generate_uuid() -> str:
@@ -547,3 +549,18 @@ class CookSessionEvent(Base):
     session: Mapped["CookSession"] = relationship()
 
 
+
+
+class NoteInsightsCache(Base):
+    __tablename__ = "note_insights_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True)
+    scope: Mapped[str] = mapped_column(String, nullable=False)  # "workspace" or "recipe"
+    recipe_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), index=True, nullable=True)
+    window_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    facts_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    result_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

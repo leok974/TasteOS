@@ -93,7 +93,8 @@ def db_session():
 @pytest.fixture
 def workspace(db_session):
     """Create a test workspace."""
-    ws = Workspace(id="test-ws-id", slug="test", name="Test Workspace")
+    # Use a valid UUID to ensure compatibility with GUID types
+    ws = Workspace(id="00000000-0000-0000-0000-000000000000", slug="test", name="Test Workspace")
     db_session.add(ws)
     db_session.commit()
     db_session.refresh(ws)

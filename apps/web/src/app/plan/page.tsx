@@ -3,6 +3,7 @@
 
 import { useCurrentPlan, useGeneratePlan } from '@/features/plan/hooks';
 import { PlanGrid } from '@/features/plan/PlanGrid';
+import { InsightsCard } from '@/features/insights/InsightsCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, startOfWeek, addDays } from 'date-fns';
@@ -36,6 +37,8 @@ export default function PlanPage() {
                     </Button>
                 )}
             </div>
+
+            <InsightsCard scope="workspace" windowDays={30} className="w-full" />
 
             {isLoading ? (
                 <PlanSkeleton />

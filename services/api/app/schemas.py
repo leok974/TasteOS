@@ -424,3 +424,41 @@ class SessionWhyResponse(BaseModel):
     confidence: float = 0.0
     reason: Optional[str] = None
     signals: list[StepSignal] = []
+
+# --- Insight Schemas ---
+
+class InsightPattern(BaseModel):
+    title: str
+    evidence: list[str]
+    confidence: float
+    tags: list[str]
+
+class InsightPlaybookItem(BaseModel):
+    when: str
+    do: list[str]
+    avoid: list[str]
+
+class InsightMethodTip(BaseModel):
+    method: str
+    tips: list[str]
+    common_pitfalls: list[str]
+
+class InsightNextFocus(BaseModel):
+    goal: str
+    why: str
+    action: str
+
+class InsightsResponse(BaseModel):
+    headline: str
+    patterns: list[InsightPattern]
+    playbook: list[InsightPlaybookItem]
+    method_tips: list[InsightMethodTip]
+    next_focus: list[InsightNextFocus]
+    model: Optional[str] = None # For debugging/transparency
+
+class InsightsRequest(BaseModel):
+    scope: Literal["workspace", "recipe"]
+    recipe_id: Optional[str] = None
+    window_days: int = 90
+    force: bool = False
+    style: Literal["coach", "concise", "chef"] = "coach"

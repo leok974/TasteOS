@@ -481,3 +481,51 @@ export async function applyAdjustment(
   return apiPost<CookSession>(`/cook/session/${sessionId}/adjust/apply`, req);
 }
 
+
+// --- Insights ---
+
+export interface InsightPattern {
+  title: string;
+  evidence: string[];
+  confidence: number;
+  tags: string[];
+}
+
+export interface InsightPlaybookItem {
+  when: string;
+  do: string[];
+  avoid: string[];
+}
+
+export interface InsightMethodTip {
+  method: string;
+  tips: string[];
+  common_pitfalls: string[];
+}
+
+export interface InsightNextFocus {
+  goal: string;
+  why: string;
+  action: string;
+}
+
+export interface InsightsResponse {
+  headline: string;
+  patterns: InsightPattern[];
+  playbook: InsightPlaybookItem[];
+  method_tips: InsightMethodTip[];
+  next_focus: InsightNextFocus[];
+  model?: string;
+}
+
+export interface InsightsRequest {
+  scope: "workspace" | "recipe";
+  recipe_id?: string | null;
+  window_days?: number;
+  force?: boolean;
+  style?: "coach" | "concise" | "chef";
+}
+
+export async function fetchInsights(params: InsightsRequest): Promise<InsightsResponse> {
+  return apiPost<InsightsResponse>("/insights/notes", params);
+}

@@ -47,6 +47,7 @@ import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
 import { RecipeNotesHistory } from '@/features/recipes/RecipeNotesHistory';
+import { InsightsCard } from '@/features/insights/InsightsCard';
 import {
     useCookSessionActive,
     useCookSessionStart,
@@ -1025,6 +1026,10 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                         <p className="mt-4 text-sm text-stone-600 leading-relaxed whitespace-pre-wrap pl-4 border-l-2 border-stone-100">{recipe.notes}</p>
                     </details>
                 ) : null}
+
+                <div className="mt-6">
+                    <InsightsCard scope="recipe" recipeId={recipe.id} />
+                </div>
 
                 <RecipeNotesHistory recipeId={recipe.id} />
             </div>

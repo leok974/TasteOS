@@ -2,8 +2,9 @@ import os
 from redis.asyncio import Redis as AsyncRedis
 from redis import Redis as SyncRedis
 
-_redis_async: AsyncRedis | None = None
-_redis_sync: SyncRedis | None = None
+from typing import Optional
+_redis_async: Optional[AsyncRedis] = None
+_redis_sync: Optional[SyncRedis] = None
 
 def redis_url() -> str:
     return os.getenv("REDIS_URL", "redis://localhost:6379/0")

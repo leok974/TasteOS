@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.db import Base, get_db
-from app.models import Workspace, PantryItem
+from app.models import Workspace, PantryItem, MealPlan, MealPlanEntry
 from app.deps import get_workspace
 
 # --- Test Database Setup ---
@@ -177,3 +177,68 @@ def test_delete_pantry_item(client, workspace):
     res = client.get("/api/pantry/", headers={"X-Workspace-Id": workspace.id})
     ids = [i["id"] for i in res.json()]
     assert item_id not in ids
+
+
+# --- Leftovers Tests ---
+
+def test_create_leftover_lifecycle(client, workspace, db_session):
+    # 0. Setup: Create Meal Plan Entry for FK
+    mp = MealPlan(
+        workspace_id=workspace.id,
+        week_start=date.today(),
+        settings_json={}
+    )
+    db_session.add(mp)
+    db_session.commit()
+    db_session.refresh(mp)
+    
+    mpe = MealPlanEntry(
+        meal_plan_id=mp.id,
+        date=date.today(),
+        meal_type="dinner"
+    )
+    db_session.add(mpe)
+    db_session.commit()
+    db_session.refresh(mpe)
+
+    # 1. Create Leftover
+    payload = {
+        "name": "Roast Chicken Leftovers",
+        "servings_left": 2.5,
+        "expires_on": (date.today() + timedelta(days=3)).isoformat(),
+        "notes": "Delicious",
+        "plan_entry_id": mpe.id
+    }
+    
+    headers = {"X-Workspace-Id": workspace.id}
+    
+    response = client.post("/api/pantry/leftovers", json=payload, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == payload["name"]
+    assert data["pantry_item_id"] is not None
+    leftover_id = data["id"]
+    p_id = data["pantry_item_id"]
+
+    # 2. Verify Pantry Item Created
+    p_response = client.get("/api/pantry/", headers=headers)
+    p_items = p_response.json()
+    found_p = next((p for p in p_items if p["id"] == p_id), None)
+    assert found_p is not None
+    assert found_p["name"] == payload["name"]
+    assert found_p["category"] == "Leftovers"
+    assert found_p["qty"] == 2.5
+    assert found_p["source"] == "leftover"
+
+    # 3. Dedupe check (Idempotencyish)
+    # Calling create again with same plan_entry_id should return existing
+    response2 = client.post("/api/pantry/leftovers", json=payload, headers=headers)
+    assert response2.status_code == 200
+    data2 = response2.json()
+    assert data2["id"] == leftover_id
+    
+    # 4. Verify Active List
+    l_response = client.get("/api/pantry/leftovers", headers=headers)
+    l_items = l_response.json()
+    assert len(l_items) >= 1
+    assert any(l["id"] == leftover_id for l in l_items)

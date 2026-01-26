@@ -6,8 +6,9 @@ Request/response models for:
 - Recipe images
 """
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Literal
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -201,6 +202,8 @@ class GroceryListItemOut(BaseModel):
     category: Optional[str]
     status: str
     reason: Optional[str]
+    pantry_item_id: Optional[str] = None
+    purchased_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -462,3 +465,71 @@ class InsightsRequest(BaseModel):
     window_days: int = 90
     force: bool = False
     style: Literal["coach", "concise", "chef"] = "coach"
+
+
+# --- Pantry Transactions ---
+
+class PantryTransactionOut(BaseModel):
+    id: str
+    pantry_item_id: str
+    source: str
+    ref_type: str
+    ref_id: Optional[str]
+    delta_qty: Optional[Decimal]
+    unit: Optional[str]
+    note: Optional[str]
+    created_at: datetime
+    undone_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# --- Leftovers ---
+
+class LeftoverBase(BaseModel):
+    name: str
+    expires_on: Optional[date] = None
+    servings_left: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+class LeftoverCreate(LeftoverBase):
+    plan_entry_id: Optional[str] = None
+    recipe_id: Optional[str] = None
+
+class LeftoverUpdate(BaseModel):
+    name: Optional[str] = None
+    expires_on: Optional[date] = None
+    servings_left: Optional[Decimal] = None
+    notes: Optional[str] = None
+    consumed_at: Optional[datetime] = None
+
+class LeftoverOut(LeftoverBase):
+    id: str
+    workspace_id: str
+    plan_entry_id: Optional[str]
+    recipe_id: Optional[str]
+    pantry_item_id: Optional[str]
+    created_at: datetime
+    consumed_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+# --- Pantry Decrement ---
+
+class PantryDecrementItem(BaseModel):
+    ingredient_name: str
+    pantry_item_id: Optional[str]
+    pantry_item_name: Optional[str]
+    qty_needed: float
+    qty_available: Optional[float]
+    unit: Optional[str]
+    match_confidence: float # 1.0 = exact, 0.0 = none
+
+class PantryDecrementPreviewResponse(BaseModel):
+    items: list[PantryDecrementItem]
+
+class PantryDecrementApplyRequest(BaseModel):
+    force: bool = False
+    items: Optional[list[PantryDecrementItem]] = None # If provided, use these override values

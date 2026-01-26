@@ -34,6 +34,12 @@ def compile_jsonb(element, compiler, **kw):
 # Register adapters for SQLite to handle list/dict as JSON
 sqlite3.register_adapter(list, json.dumps)
 sqlite3.register_adapter(dict, json.dumps)
+
+# Prevent SQLite from converting dates/datetimes, let SQLAlchemy handle it
+sqlite3.register_converter("DATE", lambda x: x.decode("utf-8"))
+sqlite3.register_converter("DATETIME", lambda x: x.decode("utf-8"))
+sqlite3.register_converter("TIMESTAMP", lambda x: x.decode("utf-8"))
+
 # Register converter for our custom type ONLY to avoid double-decoding standard JSON
 sqlite3.register_converter("JSON_ARRAY", json.loads)
 

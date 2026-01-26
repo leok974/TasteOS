@@ -12,10 +12,13 @@ import logging
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, joinedload
+
+from app.infra.idempotency import idempotency_precheck, idempotency_store_result, idempotency_clear_key
 
 from ..db import get_db
 from ..deps import get_workspace
@@ -271,8 +274,9 @@ def update_recipe(
 # --- Image Generation Endpoints ---
 
 @router.post("/recipes/{recipe_id}/image/generate", response_model=dict)
-def generate_image(
+async def generate_image(
     recipe_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
@@ -281,54 +285,67 @@ def generate_image(
     When AI is enabled, this will enqueue a job to generate the image.
     For now, creates a pending row that can be processed by a worker.
     """
-    if not settings.ai_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="Image generation is disabled. Set AI_ENABLED=1 to enable."
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="recipe_image_gen")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
+
+    try:
+        if not settings.ai_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Image generation is disabled. Set AI_ENABLED=1 to enable."
+            )
+        
+        recipe = (
+            db.query(Recipe)
+            .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
+            .first()
         )
-    
-    recipe = (
-        db.query(Recipe)
-        .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
-        .first()
-    )
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    
-    # Check if there's already a pending image
-    existing_pending = (
-        db.query(RecipeImage)
-        .filter(RecipeImage.recipe_id == recipe_id, RecipeImage.status == "pending")
-        .first()
-    )
-    if existing_pending:
-        return {
-            "image_id": existing_pending.id,
+        if not recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        
+        # Check if there's already a pending image
+        existing_pending = (
+            db.query(RecipeImage)
+            .filter(RecipeImage.recipe_id == recipe_id, RecipeImage.status == "pending")
+            .first()
+        )
+        if existing_pending:
+            res = {
+                "image_id": existing_pending.id,
+                "status": "pending",
+                "message": "Image generation already in progress",
+            }
+            await idempotency_store_result(redis_key, req_hash, status=200, body=res)
+            return res
+        
+        # Create new pending image
+        image = RecipeImage(
+            id=str(uuid.uuid4()),
+            recipe_id=recipe_id,
+            status="pending",
+            provider="gemini",
+            model=settings.gemini_model,
+            prompt=f"Professional food photography of {recipe.title}",
+        )
+        db.add(image)
+        db.commit()
+        db.refresh(image)
+        
+        # TODO: Enqueue job to worker (Redis + RQ)
+        # For now, the worker can poll for pending images
+        
+        res = {
+            "image_id": image.id,
             "status": "pending",
-            "message": "Image generation already in progress",
+            "message": "Image generation started",
         }
-    
-    # Create new pending image
-    image = RecipeImage(
-        id=str(uuid.uuid4()),
-        recipe_id=recipe_id,
-        status="pending",
-        provider="gemini",
-        model=settings.gemini_model,
-        prompt=f"Professional food photography of {recipe.title}",
-    )
-    db.add(image)
-    db.commit()
-    db.refresh(image)
-    
-    # TODO: Enqueue job to worker (Redis + RQ)
-    # For now, the worker can poll for pending images
-    
-    return {
-        "image_id": image.id,
-        "status": "pending",
-        "message": "Image generation started",
-    }
+        await idempotency_store_result(redis_key, req_hash, status=200, body=res)
+        return res
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
 
 
 @router.get("/recipes/{recipe_id}/image", response_model=dict)
@@ -469,7 +486,8 @@ def export_recipe(
 
 
 @router.post("/recipes/import", response_model=dict, status_code=201)
-def import_recipe(
+async def import_recipe(
+    request: Request,
     payload: PortableRecipe,
     mode: str = Query("dedupe", regex="^(dedupe|copy)$"),
     regen_image: bool = Query(False),
@@ -477,93 +495,104 @@ def import_recipe(
     workspace: Workspace = Depends(get_workspace),
 ):
     """Import a portable recipe into the current workspace."""
-    
-    if payload.schema_version != "tasteos.recipe.v1":
-        raise HTTPException(status_code=400, detail=f"Unsupported schema version: {payload.schema_version}")
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="recipe_import")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
 
-    pr = payload.recipe
-    
-    # 1. Dedupe Check
-    if mode == "dedupe":
-        # Simple fuzzy match on title (case-insensitive)
-        existing = (
-            db.query(Recipe)
-            .filter(
-                Recipe.workspace_id == workspace.id,
-                Recipe.title.ilike(pr.title.strip())
+    try:
+        if payload.schema_version != "tasteos.recipe.v1":
+            raise HTTPException(status_code=400, detail=f"Unsupported schema version: {payload.schema_version}")
+
+        pr = payload.recipe
+        
+        # 1. Dedupe Check
+        if mode == "dedupe":
+            # Simple fuzzy match on title (case-insensitive)
+            existing = (
+                db.query(Recipe)
+                .filter(
+                    Recipe.workspace_id == workspace.id,
+                    Recipe.title.ilike(pr.title.strip())
+                )
+                .first()
             )
-            .first()
+            if existing:
+                res = {
+                    "recipe_id": existing.id,
+                    "created": False,
+                    "deduped": True,
+                    "message": f"Recipe '{existing.title}' already exists."
+                }
+                await idempotency_store_result(redis_key, req_hash, status=201, body=res)
+                return res
+
+        # 2. Create Recipe
+        new_recipe = Recipe(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace.id,
+            title=pr.title,
+            cuisines=pr.cuisines,
+            tags=pr.tags,
+            servings=pr.servings,
+            time_minutes=pr.time_minutes,
+            notes=pr.notes
         )
-        if existing:
-            return {
-                "recipe_id": existing.id,
-                "created": False,
-                "deduped": True,
-                "message": f"Recipe '{existing.title}' already exists."
-            }
-
-    # 2. Create Recipe
-    new_recipe = Recipe(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace.id,
-        title=pr.title,
-        cuisines=pr.cuisines,
-        tags=pr.tags,
-        servings=pr.servings,
-        time_minutes=pr.time_minutes,
-        notes=pr.notes
-    )
-    db.add(new_recipe)
-    
-    # 3. Create Ingredients
-    from ..models import RecipeIngredient
-    for i in pr.ingredients:
-        db.add(RecipeIngredient(
-            id=str(uuid.uuid4()),
-            recipe_id=new_recipe.id,
-            name=i.name,
-            qty=i.qty,
-            unit=i.unit,
-            category=i.category
-        ))
+        db.add(new_recipe)
         
-    # 4. Create Steps
-    for s in pr.steps:
-        db.add(RecipeStep(
-            id=str(uuid.uuid4()),
-            recipe_id=new_recipe.id,
-            step_index=s.step_index,
-            title=s.title,
-            bullets=s.bullets,
-            minutes_est=s.minutes_est
-        ))
+        # 3. Create Ingredients
+        from ..models import RecipeIngredient
+        for i in pr.ingredients:
+            db.add(RecipeIngredient(
+                id=str(uuid.uuid4()),
+                recipe_id=new_recipe.id,
+                name=i.name,
+                qty=i.qty,
+                unit=i.unit,
+                category=i.category
+            ))
+            
+        # 4. Create Steps
+        for s in pr.steps:
+            db.add(RecipeStep(
+                id=str(uuid.uuid4()),
+                recipe_id=new_recipe.id,
+                step_index=s.step_index,
+                title=s.title,
+                bullets=s.bullets,
+                minutes_est=s.minutes_est
+            ))
 
-    db.commit()
-    db.refresh(new_recipe)
-
-    # 5. Handle Image Regeneration
-    if regen_image and settings.ai_enabled:
-        # Use existing prompt if available, otherwise construct one
-        prompt = pr.image_meta.prompt if (pr.image_meta and pr.image_meta.prompt) else f"Professional food photography of {new_recipe.title}"
-        
-        image = RecipeImage(
-            id=str(uuid.uuid4()),
-            recipe_id=new_recipe.id,
-            status="pending",
-            provider="gemini",
-            model=settings.gemini_model,
-            prompt=prompt,
-        )
-        db.add(image)
         db.commit()
+        db.refresh(new_recipe)
 
-    return {
-        "recipe_id": new_recipe.id,
-        "created": True,
-        "deduped": False,
-        "message": "Recipe imported successfully."
+        # 5. Handle Image Regeneration
+        if regen_image and settings.ai_enabled:
+            # Use existing prompt if available, otherwise construct one
+            prompt = pr.image_meta.prompt if (pr.image_meta and pr.image_meta.prompt) else f"Professional food photography of {new_recipe.title}"
+            
+            image = RecipeImage(
+                id=str(uuid.uuid4()),
+                recipe_id=new_recipe.id,
+                status="pending",
+                provider="gemini",
+                model=settings.gemini_model,
+                prompt=prompt,
+            )
+            db.add(image)
+            db.commit()
 
-    }
+        res = {
+            "recipe_id": new_recipe.id,
+            "created": True,
+            "deduped": False,
+            "message": "Recipe imported successfully."
+        }
+        await idempotency_store_result(redis_key, req_hash, status=201, body=res)
+        return res
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
 
 
 @router.get("/recipes/{recipe_id}/share-token", response_model=dict)
@@ -591,107 +620,119 @@ class IngestRequest(BaseModel):
     generate_image: bool = False
 
 @router.post("/recipes/ingest", response_model=RecipeOut, status_code=201)
-def ingest_recipe(
+async def ingest_recipe(
+    request: Request,
     payload: IngestRequest,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
     """Ingest a recipe from raw text OR magic token."""
-    from ..services.ingestion import IngestionService
-    from ..parsing import decode_recipe_token
-    
-    # Check if text is a token
-    if payload.text.strip().startswith("tasteos-v1:"):
-        try:
-            data = decode_recipe_token(payload.text.strip())
-            # Convert dict back to PortableRecipe validation?
-            # Ideally we reuse the IMPORT logic now.
-            # But IngestService expects text.
-            # Let's see... Import endpoint expects PortableRecipe.
-            # Maybe we should internally call import_recipe logic?
-            # Or make IngestionService capable of handling structured data?
-            
-            # For MVP simplicity: We will piggyback on the /import logic internally
-            # or just map it here.
-            
-            # Let's map it to PortableRecipe and call the import service logic?
-            # We don't have an ImportService, the logic is in the router (bad practice but it is what it is).
-            # Let's instigate a quick refactor or just call the router logic? No, calling router from router is messy.
-            
-            # Better: Let's extract the import logic to a service function eventually.
-            # For now, duplicate/inline the creation logic using the decoded data.
-            # Actually, the decoded data IS a PortableRecipe structure.
-            from ..share_schemas import PortableRecipe
-            portable = PortableRecipe(**data)
-            
-            # Call import_recipe logic (we can refactor import_recipe to use a shared function)
-            # Or just redirect? No.
-            
-            # Let's just use the client to call our own API? No.
-            # Let's just create the recipe here using the same logic as import.
-            # It's duplication but safier than refactoring everything now.
-            
-            pr = portable.recipe
-            new_recipe = Recipe(
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="recipe_ingest")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
+
+    try:
+        from ..services.ingestion import IngestionService
+        from ..parsing import decode_recipe_token
+        
+        # Check if text is a token
+        if payload.text.strip().startswith("tasteos-v1:"):
+            try:
+                data = decode_recipe_token(payload.text.strip())
+                # Convert dict back to PortableRecipe validation?
+                # Ideally we reuse the IMPORT logic now.
+                # But IngestService expects text.
+                # Let's see... Import endpoint expects PortableRecipe.
+                # Maybe we should internally call import_recipe logic?
+                # Or make IngestionService capable of handling structured data?
+                
+                # For MVP simplicity: We will piggyback on the /import logic internally
+                # or just map it here.
+                
+                # Let's map it to PortableRecipe and call the import service logic?
+                # We don't have an ImportService, the logic is in the router (bad practice but it is what it is).
+                # Let's instigate a quick refactor or just call the router logic? No, calling router from router is messy.
+                
+                # Better: Let's extract the import logic to a service function eventually.
+                # For now, duplicate/inline the creation logic using the decoded data.
+                # Actually, the decoded data IS a PortableRecipe structure.
+                from ..share_schemas import PortableRecipe
+                portable = PortableRecipe(**data)
+                
+                # Call import_recipe logic (we can refactor import_recipe to use a shared function)
+                # Or just redirect? No.
+                
+                # Let's just use the client to call our own API? No.
+                # Let's just create the recipe here using the same logic as import.
+                # It's duplication but safier than refactoring everything now.
+                
+                pr = portable.recipe
+                new_recipe = Recipe(
+                    id=str(uuid.uuid4()),
+                    workspace_id=workspace.id,
+                    title=pr.title,
+                    cuisines=pr.cuisines,
+                    tags=pr.tags,
+                    servings=pr.servings,
+                    time_minutes=pr.time_minutes,
+                    notes=pr.notes
+                )
+                db.add(new_recipe)
+                
+                for i in pr.ingredients:
+                    from ..models import RecipeIngredient
+                    db.add(RecipeIngredient(
+                        id=str(uuid.uuid4()),
+                        recipe_id=new_recipe.id,
+                        name=i.name,
+                        qty=i.qty,
+                        unit=i.unit,
+                        category=i.category
+                    ))
+                
+                for s in pr.steps:
+                    db.add(RecipeStep(
+                        id=str(uuid.uuid4()),
+                        recipe_id=new_recipe.id,
+                        step_index=s.step_index,
+                        title=s.title,
+                        bullets=s.bullets,
+                        minutes_est=s.minutes_est
+                    ))
+                
+                db.commit()
+                db.refresh(new_recipe)
+                recipe = new_recipe
+                
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid token: {str(e)}")
+                
+        else:
+            # Normal text ingestion
+            service = IngestionService(db)
+            recipe = service.ingest_text(workspace.id, payload.text, payload.hints)
+        
+        # Handle Image Generation if requested
+        if payload.generate_image and settings.ai_enabled:
+            from ..models import RecipeImage
+            image = RecipeImage(
                 id=str(uuid.uuid4()),
-                workspace_id=workspace.id,
-                title=pr.title,
-                cuisines=pr.cuisines,
-                tags=pr.tags,
-                servings=pr.servings,
-                time_minutes=pr.time_minutes,
-                notes=pr.notes
+                recipe_id=recipe.id,
+                status="pending",
+                provider="gemini",
+                model=settings.gemini_model,
+                prompt=f"Professional food photography of {recipe.title}",
             )
-            db.add(new_recipe)
-            
-            for i in pr.ingredients:
-                from ..models import RecipeIngredient
-                db.add(RecipeIngredient(
-                    id=str(uuid.uuid4()),
-                    recipe_id=new_recipe.id,
-                    name=i.name,
-                    qty=i.qty,
-                    unit=i.unit,
-                    category=i.category
-                ))
-            
-            for s in pr.steps:
-                db.add(RecipeStep(
-                    id=str(uuid.uuid4()),
-                    recipe_id=new_recipe.id,
-                    step_index=s.step_index,
-                    title=s.title,
-                    bullets=s.bullets,
-                    minutes_est=s.minutes_est
-                ))
-            
+            db.add(image)
             db.commit()
-            db.refresh(new_recipe)
-            recipe = new_recipe
-            
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid token: {str(e)}")
-            
-    else:
-        # Normal text ingestion
-        service = IngestionService(db)
-        recipe = service.ingest_text(workspace.id, payload.text, payload.hints)
-    
-    # Handle Image Generation if requested
-    if payload.generate_image and settings.ai_enabled:
-        from ..models import RecipeImage
-        image = RecipeImage(
-            id=str(uuid.uuid4()),
-            recipe_id=recipe.id,
-            status="pending",
-            provider="gemini",
-            model=settings.gemini_model,
-            prompt=f"Professional food photography of {recipe.title}",
-        )
-        db.add(image)
-        db.commit()
-    
-    return _recipe_to_out(recipe)
+        
+        resp = _recipe_to_out(recipe)
+        await idempotency_store_result(redis_key, req_hash, status=201, body=resp.model_dump(mode='json'))
+        return resp
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
 
 
 # --- Recipe Note History Endpoints ---
@@ -814,44 +855,78 @@ def get_recipe_note_tags(
 
 
 @router.post("/recipes/{recipe_id}/notes", response_model=RecipeNoteEntryOut)
-def create_recipe_note(
+async def create_recipe_note(
     recipe_id: str,
+    request: Request,
     body: RecipeNoteEntryCreate,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
     """Create a new note entry, optionally appending to legacy field."""
-    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="recipe_create_note")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
 
-    # Duplicate session check
-    if body.session_id:
-        existing = db.query(RecipeNoteEntry).filter(
-            RecipeNoteEntry.recipe_id == recipe_id,
-            RecipeNoteEntry.session_id == body.session_id,
-            RecipeNoteEntry.deleted_at.is_(None)
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=409, 
-                detail=f"Notes for this session already saved (id: {existing.id})"
-            )
+    try:
+        recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+        if not recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found")
 
-    entry = RecipeNoteEntry(
-        workspace_id=workspace.id,
-        recipe_id=recipe_id,
-        session_id=body.session_id,
-        source=body.source,
-        title=body.title,
-        content_md=body.content_md,
-        applied_to_recipe_notes=body.apply_to_recipe_notes
-    )
-    db.add(entry)
-    
-    # Sync legacy field
-    if body.apply_to_recipe_notes:
-        append_str = f"\n\n---\n{body.title}\n{body.content_md}\n"
+        # Duplicate session check
+        if body.session_id:
+            existing = db.query(RecipeNoteEntry).filter(
+                RecipeNoteEntry.recipe_id == recipe_id,
+                RecipeNoteEntry.session_id == body.session_id,
+                RecipeNoteEntry.deleted_at.is_(None)
+            ).first()
+            if existing:
+                raise HTTPException(
+                    status_code=409, 
+                    detail=f"Notes for this session already saved (id: {existing.id})"
+                )
+
+        entry = RecipeNoteEntry(
+            workspace_id=workspace.id,
+            recipe_id=recipe_id,
+            session_id=body.session_id,
+            source=body.source,
+            title=body.title,
+            content_md=body.content_md,
+            applied_to_recipe_notes=body.apply_to_recipe_notes
+        )
+        db.add(entry)
+        
+        # Sync legacy field
+        if body.apply_to_recipe_notes:
+            append_str = f"\n\n---\n{body.title}\n{body.content_md}\n"
+            recipe.notes = (recipe.notes or "") + append_str
+
+        log_event(
+            db, 
+            workspace_id=workspace.id, 
+            session_id=body.session_id, 
+            type="recipe_note_create", 
+            meta={"recipe_id": recipe_id, "note_id": entry.id, "source": body.source}
+        )
+        
+        db.commit()
+        db.refresh(entry)
+        
+        resp = RecipeNoteEntryOut(
+            id=entry.id,
+            recipe_id=entry.recipe_id,
+            title=entry.title,
+            content_md=entry.content_md,
+            source=entry.source,
+            created_at=entry.created_at,
+            tags=entry.tags or []
+        )
+        await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode='json'))
+        return resp
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raisetr = f"\n\n---\n{body.title}\n{body.content_md}\n"
         recipe.notes = (recipe.notes or "") + append_str
 
     log_event(

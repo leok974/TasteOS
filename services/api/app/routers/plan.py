@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..db import get_db
-from ..models import MealPlan, MealPlanEntry, Recipe
+from ..models import MealPlan, MealPlanEntry, Recipe, Workspace
 from ..agents.planner_agent import generate_week_plan
+from ..deps import get_workspace
 
 router = APIRouter()
 
@@ -49,42 +50,37 @@ class EntryUpdate(BaseModel):
 @router.post("/plan/generate", response_model=MealPlanOut)
 def generate_plan(
     request: PlanGenerateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
 ):
     """Generate or regenerate a meal plan for the given week."""
-    # MVP: Hardcoded workspace
-    workspace_id = "80df8463-0fdf-4b05-b1e3-8504c19f75bb" 
-    # TODO: Get from auth/header. For now, fetch the one we seeded or just query first
-    # This is a hack for the MVP to specific workspace
-    # Better: query 'local' workspace
-    from ..models import Workspace
-    ws = db.query(Workspace).filter(Workspace.slug == "local").first()
-    if ws:
-        workspace_id = ws.id
-    
-    plan = generate_week_plan(db, workspace_id, request.week_start)
+    print(f"DEBUG: Generating plan for workspace {workspace.id} week_start={request.week_start}")
+    plan = generate_week_plan(db, workspace.id, request.week_start)
     
     # Enrichment for response
     return enrich_plan_response(plan, db)
 
 
 @router.get("/plan/current", response_model=MealPlanOut)
-def get_current_plan(db: Session = Depends(get_db)):
+def get_current_plan(
+    week_start: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
     """Get the plan for the current week."""
-    # Calculate Monday of current week
-    today = date.today()
-    monday = today - timedelta(days=today.weekday())
+    # Calculate Monday of current week if not provided
+    if week_start is None:
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+    else:
+        monday = week_start
+
+    print(f"DEBUG: Get current plan for workspace {workspace.id}. Target Week={monday}")
     
-    # Get Workspace
-    from ..models import Workspace
-    ws = db.query(Workspace).filter(Workspace.slug == "local").first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-        
     plan = db.query(MealPlan).filter(
-        MealPlan.workspace_id == ws.id,
+        MealPlan.workspace_id == workspace.id,
         MealPlan.week_start == monday
-    ).first()
+    ).order_by(MealPlan.id.desc()).first()
     
     if not plan:
         # Return empty structure or 404? 

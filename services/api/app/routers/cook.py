@@ -27,15 +27,18 @@ from pydantic import BaseModel, Field
 
 from app.realtime.cook_bus import publish_session_updated_sync, subscribe_session
 from app.infra.redis_cache import get_or_set_json_sync
+from app.infra.idempotency import idempotency_precheck, idempotency_store_result, idempotency_clear_key
 
 from ..db import get_db, SessionLocal
 from ..deps import get_workspace
-from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry
+from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry, MealPlanEntry, MealPlan
 from ..services.ai_service import ai_service
 from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
 from ..services.auto_step_from_events import calculate_auto_step_from_events
+from ..services.leftover_service import create_leftover_for_entry
+from ..services.pantry_decrement import preview_decrement, apply_decrement, undo_decrement
 from ..services.events import log_event
 from ..models import CookSessionEvent
 from ..schemas import (
@@ -44,7 +47,8 @@ from ..schemas import (
     AdjustPreviewRequest, AdjustPreviewResponse, AdjustApplyRequest,
     AdjustUndoRequest, CookSessionEventOut,
     SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest,
-    SummaryPolishRequest, SummaryPolishResponse, PolishedSummary
+    SummaryPolishRequest, SummaryPolishResponse, PolishedSummary,
+    PantryDecrementPreviewResponse, PantryDecrementApplyRequest
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -103,65 +107,79 @@ class AssistResponse(BaseModel):
 # --- Endpoints ---
 
 @router.post("/session/start", response_model=SessionResponse)
-def start_session(
-    request: SessionStartRequest,
+async def start_session(
+    request: Request,
+    body: SessionStartRequest,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
     """Create or return active cooking session for recipe."""
-    # Check if active session exists
-    existing = db.scalar(
-        select(CookSession)
-        .where(
-            CookSession.workspace_id == workspace.id,
-            CookSession.recipe_id == request.recipe_id,
-            CookSession.status == "active"
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="cook_session_start")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
+
+    try:
+        # Check if active session exists
+        existing = db.scalar(
+            select(CookSession)
+            .where(
+                CookSession.workspace_id == workspace.id,
+                CookSession.recipe_id == body.recipe_id,
+                CookSession.status == "active"
+            )
         )
-    )
-    
-    if existing:
-        logger.info(f"Returning existing session {existing.id}")
-        return session_to_response(existing)
-    
-    # Verify recipe exists in workspace
-    recipe = db.scalar(
-        select(Recipe).where(
-            Recipe.id == request.recipe_id,
-            Recipe.workspace_id == workspace.id
+        
+        if existing:
+            logger.info(f"Returning existing session {existing.id}")
+            resp = session_to_response(existing)
+            await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode="json"))
+            return resp
+        
+        # Verify recipe exists in workspace
+        recipe = db.scalar(
+            select(Recipe).where(
+                Recipe.id == body.recipe_id,
+                Recipe.workspace_id == workspace.id
+            )
         )
-    )
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    
-    # Create new session
-    session = CookSession(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace.id,
-        recipe_id=request.recipe_id,
-        status="active",
-        servings_base=recipe.servings or 1,
-        servings_target=recipe.servings or 1,
-        current_step_index=0,
-        step_checks={},
-        timers={}
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    
-    logger.info(f"Created new cook session {session.id} for recipe {request.recipe_id}")
-    
-    # Log session start
-    log_event(
-        db,
-        workspace_id=workspace.id,
-        session_id=session.id,
-        type="session_start",
-        meta={"recipe_id": request.recipe_id}
-    )
-    db.commit() # Commit again to save event
-    
-    return session_to_response(session)
+        if not recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        
+        # Create new session
+        session = CookSession(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace.id,
+            recipe_id=body.recipe_id,
+            status="active",
+            servings_base=recipe.servings or 1,
+            servings_target=recipe.servings or 1,
+            current_step_index=0,
+            step_checks={},
+            timers={}
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        
+        logger.info(f"Created new cook session {session.id} for recipe {body.recipe_id}")
+        
+        # Log session start
+        log_event(
+            db,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            type="session_start",
+            meta={"recipe_id": body.recipe_id}
+        )
+        db.commit() # Commit again to save event
+        
+        resp = session_to_response(session)
+        await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode="json"))
+        return resp
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
 
 
 @router.get("/session/active", response_model=Optional[SessionResponse])
@@ -419,6 +437,53 @@ def end_session(
     
     if action == "complete":
         session.status = "completed"
+        
+        # Loop Automation v2: Auto-Create Leftover
+        # If this session corresponds to a Meal Plan Entry for today/recent, create a valid leftover.
+        
+        # 1. Try to find the Plan Entry
+        try:
+            # Look for plan entry for this recipe within reasonable window (today +/- 1 day?)
+            # Or strict "today"
+            target_date = datetime.now().date()
+            entry = db.scalar(
+                select(MealPlanEntry).where(
+                    MealPlanEntry.recipe_id == session.recipe_id,
+                    MealPlanEntry.date == target_date
+                    # We might need to join MealPlan to check workspace_id, but recipe implies it
+                    # (assuming workspace isolation) -> Actually MealPlanEntry links to MealPlan, which links to Workspace.
+                    # Simplified: Just check recipe_id? If multiple users cook same recipe... no.
+                    # We need to filter by workspace via MealPlan.
+                ).join(MealPlanEntry.meal_plan).where(
+                    MealPlanEntry.meal_plan.has(workspace_id=workspace.id)
+                )
+            )
+            
+            if entry:
+                # 2. Check logic: "If ... leftovers are expected"
+                # For now, we ALWAYS create if there's a plan entry, trusting dedupe + heuristics.
+                # Assuming 1 serving left if not specified.
+                
+                # Get Recipe Name for the leftover
+                recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+                leftover_name = recipe.title if recipe else "Leftovers"
+
+                create_leftover_for_entry(
+                    db=db,
+                    workspace=workspace,
+                    plan_entry_id=entry.id,
+                    recipe_id=session.recipe_id,
+                    name=leftover_name,
+                    # We default to 1.0 or heuristic based on servings_target vs consumption?
+                    # Let's use 1.0 for now as 'some' leftovers.
+                    servings=1.0, 
+                    notes="Automatically created from Cook Session"
+                )
+                logger.info(f"Auto-created leftover for session {session_id} linked to entry {entry.id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to auto-create leftover for session {session_id}: {e}")
+
     elif action == "abandon":
         session.status = "abandoned"
     else:
@@ -441,6 +506,82 @@ def end_session(
     
     notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
+    return session_to_response(session)
+
+
+# --- Pantry Decrement ---
+
+@router.post("/session/{session_id}/pantry/decrement/preview", response_model=PantryDecrementPreviewResponse)
+def preview_pantry_decrement(
+    session_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Preview pantry usage for the current cook session."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    items = preview_decrement(db, session)
+    return {"items": items}
+
+@router.post("/session/{session_id}/pantry/decrement/apply", response_model=SessionResponse)
+def apply_pantry_decrement(
+    session_id: str,
+    request: PantryDecrementApplyRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Apply pantry decrement (create transactions and update stock)."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Determine items to apply
+    if request.items:
+        items = request.items
+    else:
+        # Re-calc preview if input not provided
+        items = preview_decrement(db, session)
+        
+    apply_decrement(db, session, items)
+    
+    db.commit()
+    db.refresh(session)
+    notify_session_update(session)
+    return session_to_response(session)
+
+@router.post("/session/{session_id}/pantry/decrement/undo", response_model=SessionResponse)
+def undo_pantry_decrement(
+    session_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Undo pantry decrement for this session."""
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    undo_decrement(db, session)
+    
+    db.commit()
+    db.refresh(session)
+    notify_session_update(session)
     return session_to_response(session)
 
 
@@ -849,11 +990,11 @@ def preview_adjustment(
         adjustment=adjustment,
         steps_preview=steps_preview,
         diff={
-            "step_index": request.step_index,
+            "step_index": target_idx,
             "changed_fields": ["title", "bullets"],
             "before": {
-                "title": original_step.get("title", ""),
-                "bullets": original_step.get("bullets", [])
+                "title": current_steps[target_idx]["title"],
+                "bullets": current_steps[target_idx]["bullets"]
             },
             "after": {
                 "title": new_step["title"],
@@ -863,205 +1004,233 @@ def preview_adjustment(
     )
 
 @router.post("/session/{session_id}/adjust/apply", response_model=SessionResponse)
-def apply_adjustment(
+async def apply_adjustment(
     session_id: str,
-    request: AdjustApplyRequest,
+    body: AdjustApplyRequest,
+    request: Request,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
     """Apply a step adjustment permanently to the session."""
-    session = db.scalar(
-        select(CookSession).where(
-            CookSession.id == session_id,
-            CookSession.workspace_id == workspace.id
-        )
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    # Capture snapshot before applying
-    step_index = request.adjustment.step_index
-    before_step = None
-    
-    if session.steps_override:
-        if 0 <= step_index < len(session.steps_override):
-            before_step = session.steps_override[step_index]
-    else:
-        # Fetch original recipe step
-        r = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
-        if r and r.steps:
-            sorted_steps = sorted(r.steps, key=lambda x: x.step_index)
-            if 0 <= step_index < len(sorted_steps):
-                s = sorted_steps[step_index]
-                before_step = {
-                    "step_index": s.step_index,
-                    "title": s.title,
-                    "bullets": s.bullets,
-                    "minutes_est": s.minutes_est,
-                }
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="cook_adjust_apply")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
 
-    session.steps_override = request.steps_override
-    
-    # Append to log
-    # request.adjustment is a Pydantic model CookAdjustment
-    log_entry = request.adjustment.model_dump(mode='json')
-    log_entry["applied_at"] = datetime.now(timezone.utc).isoformat()
-    if before_step:
-        log_entry["before_step"] = before_step
-    
-    if 0 <= step_index < len(request.steps_override):
-        log_entry["after_step"] = request.steps_override[step_index]
-    
-    if not session.adjustments_log:
-        session.adjustments_log = []
+    try:
+        session = db.scalar(
+            select(CookSession).where(
+                CookSession.id == session_id,
+                CookSession.workspace_id == workspace.id
+            )
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        # Capture snapshot before applying
+        step_index = body.adjustment.step_index
+        before_step = None
         
-    session.adjustments_log.append(log_entry)
-    
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(session, "adjustments_log")
-    flag_modified(session, "steps_override")
-    
-    # Log event
-    log_event(
-        db,
-        workspace_id=workspace.id,
-        session_id=session.id,
-        type="adjust_apply",
-        meta={
-            "adjustment_id": request.adjustment.id,
-            "kind": request.adjustment.kind,
-            "step_index": step_index
-        },
-        step_index=step_index
-    )
-    
-    # Update interaction stats
+        if session.steps_override:
+            if 0 <= step_index < len(session.steps_override):
+                before_step = session.steps_override[step_index]
+        else:
+            # Fetch original recipe step
+            r = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+            if r and r.steps:
+                sorted_steps = sorted(r.steps, key=lambda x: x.step_index)
+                if 0 <= step_index < len(sorted_steps):
+                    s = sorted_steps[step_index]
+                    before_step = {
+                        "step_index": s.step_index,
+                        "title": s.title,
+                        "bullets": s.bullets,
+                        "minutes_est": s.minutes_est,
+                    }
+
+        session.steps_override = body.steps_override
+        
+        # Append to log
+        # body.adjustment is a Pydantic model CookAdjustment
+        log_entry = body.adjustment.model_dump(mode='json')
+        log_entry["applied_at"] = datetime.now(timezone.utc).isoformat()
+        if before_step:
+            log_entry["before_step"] = before_step
+        
+        if 0 <= step_index < len(body.steps_override):
+            log_entry["after_step"] = body.steps_override[step_index]
+        
+        if not session.adjustments_log:
+            session.adjustments_log = []
+            
+        session.adjustments_log.append(log_entry)
+        
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(session, "adjustments_log")
+        flag_modified(session, "steps_override")
+        
+        # Log event
+        log_event(
+            db,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            type="adjust_apply",
+            meta={
+                "adjustment_id": body.adjustment.id,
+                "kind": body.adjustment.kind,
+                "step_index": step_index
+            },
+            step_index=step_index
+        )
+        
+        # Update interaction stats
+        now = datetime.now(timezone.utc)
+        session.last_interaction_at = now
+        if "step_index" in log_entry:
+            session.last_interaction_step_index = log_entry["step_index"]
+        
+        # Recalculate auto step (V7)
+        calculate_auto_step_from_events(session, db, now)
+        
+        session.updated_at = now
+        db.commit()
+        db.refresh(session)
+        
+        notify_session_update(session)
+        resp = session_to_response(session)
+        await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode="json"))
+        return resp
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
     now = datetime.now(timezone.utc)
     session.last_interaction_at = now
     if "step_index" in log_entry:
          session.last_interaction_step_index = log_entry["step_index"]
     
-    # Recalculate auto step (V7)
-    calculate_auto_step_from_events(session, db, now)
-    
-    session.updated_at = now
-    db.commit()
-    db.refresh(session)
-    
-    notify_session_update(session)
-    return session_to_response(session)
-
-
-@router.post("/session/{session_id}/adjust/undo", response_model=SessionResponse)
-def undo_adjustment(
+async def undo_adjustment(
     session_id: str,
-    request: AdjustUndoRequest,
+    request: Request,
+    body: AdjustUndoRequest,
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_workspace),
 ):
     """Undo a previously applied adjustment."""
-    session = db.scalar(
-        select(CookSession).where(
-            CookSession.id == session_id,
-            CookSession.workspace_id == workspace.id
+    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="cook_adjust_undo")
+    if isinstance(pre, JSONResponse):
+        return pre
+    redis_key, req_hash, _ = pre
+
+    try:
+        session = db.scalar(
+            select(CookSession).where(
+                CookSession.id == session_id,
+                CookSession.workspace_id == workspace.id
+            )
         )
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        if not session.adjustments_log:
+            raise HTTPException(status_code=404, detail="No adjustments to undo")
+
+        # Find target adjustment
+        target_entry = None
+        target_idx = -1
         
-    if not session.adjustments_log:
-         raise HTTPException(status_code=404, detail="No adjustments to undo")
+        if body.adjustment_id:
+            for i, entry in enumerate(session.adjustments_log):
+                if entry.get("id") == body.adjustment_id:
+                    target_entry = entry
+                    target_idx = i
+                    break
+        else:
+            # Find last applied and not undone
+            for i in range(len(session.adjustments_log) - 1, -1, -1):
+                entry = session.adjustments_log[i]
+                # Only consider applied adjustments (should all be applied if in log, but be safe)
+                # And ignore already undone ones
+                if not entry.get("undone_at"):
+                    target_entry = entry
+                    target_idx = i
+                    break
+        
+        if not target_entry:
+            raise HTTPException(status_code=404, detail="Adjustment not found or already undone")
+            
+        if target_entry.get("undone_at"):
+            raise HTTPException(status_code=409, detail="Adjustment already undone")
+            
+        before_step = target_entry.get("before_step")
+        step_index = target_entry.get("step_index")
+        
+        if before_step is None or step_index is None:
+            # Check if it was a legacy log entry or failed snapshot
+            logger.warning(f"Adjustment {target_entry.get('id')} missing snapshot data. Marking as undone without revert.")
+            
+            from sqlalchemy.orm.attributes import flag_modified
 
-    # Find target adjustment
-    target_entry = None
-    target_idx = -1
-    
-    if request.adjustment_id:
-        for i, entry in enumerate(session.adjustments_log):
-             if entry.get("id") == request.adjustment_id:
-                  target_entry = entry
-                  target_idx = i
-                  break
-    else:
-        # Find last applied and not undone
-        for i in range(len(session.adjustments_log) - 1, -1, -1):
-             entry = session.adjustments_log[i]
-             # Only consider applied adjustments (should all be applied if in log, but be safe)
-             # And ignore already undone ones
-             if not entry.get("undone_at"):
-                  target_entry = entry
-                  target_idx = i
-                  break
-    
-    if not target_entry:
-         raise HTTPException(status_code=404, detail="Adjustment not found or already undone")
-         
-    if target_entry.get("undone_at"):
-         raise HTTPException(status_code=409, detail="Adjustment already undone")
-         
-    before_step = target_entry.get("before_step")
-    step_index = target_entry.get("step_index")
-    
-    if before_step is None or step_index is None:
-         # Check if it was a legacy log entry or failed snapshot
-         logger.warning(f"Adjustment {target_entry.get('id')} missing snapshot data. Marking as undone without revert.")
-         
-         from sqlalchemy.orm.attributes import flag_modified
+            # Soft-fail: Mark undone so user isn't stuck, but can't revert content
+            target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
+            session.adjustments_log[target_idx] = target_entry
+            flag_modified(session, "adjustments_log")
+            db.commit()
+            
+            # We return success because we cleared the "Undo" state effectively, 
+            # but maybe we should warn the user? For now, this unblocks the UI.
+            resp = session_to_response(session)
+            await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode="json"))
+            return resp
 
-         # Soft-fail: Mark undone so user isn't stuck, but can't revert content
-         target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
-         session.adjustments_log[target_idx] = target_entry
-         flag_modified(session, "adjustments_log")
-         db.commit()
-         
-         # We return success because we cleared the "Undo" state effectively, 
-         # but maybe we should warn the user? For now, this unblocks the UI.
-         return session_to_response(session)
+        # Revert step
+        if not session.steps_override:
+            # This implies state corruption if we have an applied adjustment log
+            # Fallback: maybe just load recipe? No, that's dangerous.
+            raise HTTPException(status_code=500, detail="Session corrupted: overrides missing")
+        
+        # Modify list in place copy
+        steps = list(session.steps_override)
+        if 0 <= step_index < len(steps):
+            steps[step_index] = before_step
+            session.steps_override = steps
+        else:
+            raise HTTPException(status_code=400, detail="Step index out of bounds")
 
-    # Revert step
-    if not session.steps_override:
-         # This implies state corruption if we have an applied adjustment log
-         # Fallback: maybe just load recipe? No, that's dangerous.
-         raise HTTPException(status_code=500, detail="Session corrupted: overrides missing")
-    
-    # Modify list in place copy
-    steps = list(session.steps_override)
-    if 0 <= step_index < len(steps):
-        steps[step_index] = before_step
-        session.steps_override = steps
-    else:
-        raise HTTPException(status_code=400, detail="Step index out of bounds")
-
-    # Mark log entry as undone
-    target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
-    # "Modify" the list item - to trigger SQLAlchemy change we might need to re-set the item or whole list
-    # JSONB mutable tracking can be finicky.
-    session.adjustments_log[target_idx] = target_entry 
-    
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(session, "adjustments_log")
-    flag_modified(session, "steps_override")
-    
-    # Log event
-    log_event(
-        db,
-        workspace_id=workspace.id,
-        session_id=session.id,
-        type="adjust_undo",
-        meta={
-            "adjustment_id": target_entry.get("id"),
-            "kind": target_entry.get("kind"),
-            "step_index": step_index
-        },
-        step_index=step_index
-    )
-    
-    session.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(session)
-    
-    notify_session_update(session)
-    return session_to_response(session)
+        # Mark log entry as undone
+        target_entry["undone_at"] = datetime.now(timezone.utc).isoformat()
+        # "Modify" the list item - to trigger SQLAlchemy change we might need to re-set the item or whole list
+        # JSONB mutable tracking can be finicky.
+        session.adjustments_log[target_idx] = target_entry 
+        
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(session, "adjustments_log")
+        flag_modified(session, "steps_override")
+        
+        # Log event
+        log_event(
+            db,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            type="adjust_undo",
+            meta={
+                "adjustment_id": target_entry.get("id"),
+                "kind": target_entry.get("kind"),
+                "step_index": step_index
+            },
+            step_index=step_index
+        )
+        
+        session.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(session)
+        
+        notify_session_update(session)
+        resp = session_to_response(session)
+        await idempotency_store_result(redis_key, req_hash, status=200, body=resp.model_dump(mode="json"))
+        return resp
+    except Exception:
+        await idempotency_clear_key(redis_key)
+        raise
 
 
 # --- Helpers ---

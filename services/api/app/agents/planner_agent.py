@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..models import Recipe, MealPlan, MealPlanEntry, UserPrefs
+from ..models import Recipe, MealPlan, MealPlanEntry, UserPrefs, PantryItem
 
 def generate_week_plan(
     db: Session, 
@@ -34,9 +34,38 @@ def generate_week_plan(
     if not all_recipes:
         # Fallback if no recipes (shouldn't happen with seed)
         return create_empty_plan(db, workspace_id, week_start)
-        
+    
+    # LOOP AUTOMATION V1: Boost recipes that use expiring pantry items
+    today = date.today()
+    expires_threshold = today + timedelta(days=7) 
+    
+    use_soon_items = db.query(PantryItem).filter(
+        PantryItem.workspace_id == workspace_id,
+        (
+            ((PantryItem.expires_at != None) & (PantryItem.expires_at <= expires_threshold)) |
+            ((PantryItem.use_soon_at != None) & (PantryItem.use_soon_at <= today))
+        )
+    ).all()
+
     random.shuffle(all_recipes)
-    anchors = all_recipes[:4]  # Top 3-4 as anchors
+
+    if use_soon_items:
+        priority_ingredients = {item.name.lower() for item in use_soon_items}
+        
+        def score_recipe(r):
+             score = 0
+             if not r.ingredients: return 0
+             for ing in r.ingredients:
+                 ing_name = ing.name.lower()
+                 if ing_name in priority_ingredients:
+                     score += 10
+                 elif any(p in ing_name for p in priority_ingredients):
+                     score += 5
+             return score
+        
+        all_recipes.sort(key=score_recipe, reverse=True)
+        
+    anchors = all_recipes[:4]  # Top recipes (prioritized) as anchors
     pool = all_recipes[4:] + all_recipes # Allow repeats if low on recipes
     
     # 3. Create Plan Object

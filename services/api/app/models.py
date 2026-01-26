@@ -10,7 +10,7 @@ Tables:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
 from sqlalchemy import (
@@ -23,6 +23,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     ARRAY,
+    desc,
+    text,
 )
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -271,8 +273,10 @@ class PantryItem(Base):
     
     # Expiry for "use soon" logic
     expires_on: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
-    
-    # Source: manual | scan | leftover | recipe
+    use_soon_at: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Source: manual | scan | leftover | recipe | grocery
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
@@ -285,6 +289,57 @@ class PantryItem(Base):
 
     # Relationships
     workspace: Mapped["Workspace"] = relationship("Workspace")
+
+
+class PantryTransaction(Base):
+    """Audit log for pantry changes and undo capability."""
+    __tablename__ = "pantry_transactions"
+    __table_args__ = (
+        Index("ix_pantry_transactions_workspace_item", "workspace_id", "pantry_item_id", desc("created_at")),
+        Index("ix_pantry_transactions_ref", "workspace_id", "ref_type", "ref_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    pantry_item_id: Mapped[str] = mapped_column(String(36), ForeignKey("pantry_items.id", ondelete="CASCADE"), nullable=False)
+    
+    source: Mapped[str] = mapped_column(String(50), nullable=False) # cook, grocery, manual
+    ref_type: Mapped[str] = mapped_column(String(50), nullable=False) # cook_session, grocery_list
+    ref_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    
+    delta_qty: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    undone_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Leftover(Base):
+    """Leftovers tracking linked to plan entries."""
+    __tablename__ = "leftovers"
+    __table_args__ = (
+        Index("ix_leftovers_workspace_active", "workspace_id", postgresql_where=text("consumed_at IS NULL")),
+        Index("ix_leftovers_dedupe_active", "workspace_id", "plan_entry_id", unique=True, postgresql_where=text("consumed_at IS NULL")),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    
+    plan_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("meal_plan_entries.id", ondelete="SET NULL"), nullable=True)
+    recipe_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
+    pantry_item_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("pantry_items.id", ondelete="SET NULL"), nullable=True)
+    
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    servings_left: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    recipe: Mapped[Optional["Recipe"]] = relationship("Recipe")
+    pantry_item: Mapped[Optional["PantryItem"]] = relationship("PantryItem")
 
 
 class RecipeIngredient(Base):
@@ -358,6 +413,14 @@ class GroceryListItem(Base):
     # status: need | have | optional | purchased
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="need")
     reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # Loop automation v1
+    pantry_item_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("pantry_items.id"), nullable=True
+    )
+    purchased_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    qty_purchased: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
+    unit_purchased: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -365,6 +428,7 @@ class GroceryListItem(Base):
 
     # Relationships
     grocery_list: Mapped["GroceryList"] = relationship("GroceryList", back_populates="items")
+    pantry_item: Mapped["PantryItem"] = relationship("PantryItem")
 
 
 from sqlalchemy.dialects.postgresql import JSONB
@@ -554,10 +618,10 @@ class CookSessionEvent(Base):
 class NoteInsightsCache(Base):
     __tablename__ = "note_insights_cache"
 
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), index=True)
     scope: Mapped[str] = mapped_column(String, nullable=False)  # "workspace" or "recipe"
-    recipe_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), index=True, nullable=True)
+    recipe_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
     window_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
     facts_hash: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

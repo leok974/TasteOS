@@ -42,7 +42,7 @@ def generate_week_plan(
     use_soon_items = db.query(PantryItem).filter(
         PantryItem.workspace_id == workspace_id,
         (
-            ((PantryItem.expires_at != None) & (PantryItem.expires_at <= expires_threshold)) |
+            ((PantryItem.expires_on != None) & (PantryItem.expires_on <= expires_threshold)) |
             ((PantryItem.use_soon_at != None) & (PantryItem.use_soon_at <= today))
         )
     ).all()

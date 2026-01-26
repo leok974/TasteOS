@@ -6,11 +6,25 @@ import { PlanGrid } from '@/features/plan/PlanGrid';
 import { InsightsCard } from '@/features/insights/InsightsCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format, startOfWeek, addDays } from 'date-fns';
 
 export default function PlanPage() {
     const { plan, isLoading, isEmpty } = useCurrentPlan();
     const { generate, isGenerating } = useGeneratePlan();
+    
+    // Debugging visibility
+    console.log("PlanPage Render:", { hasPlan: !!plan, isEmpty, isLoading });
 
     const handleGenerate = () => {
         // Determine next Monday or current week's Monday
@@ -18,11 +32,15 @@ export default function PlanPage() {
         // For MVP, always generate for CURRENT week's Monday
         const monday = startOfWeek(today, { weekStartsOn: 1 });
         const dateStr = format(monday, 'yyyy-MM-dd');
+        
         generate(dateStr);
     };
 
     return (
         <div className="container py-8 max-w-7xl mx-auto space-y-8">
+            {/* Version Marker to confirm HMR */}
+            <div className="hidden">v2.2</div>
+
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Weekly Plan</h1>
@@ -31,10 +49,30 @@ export default function PlanPage() {
                     </p>
                 </div>
 
-                {(!plan || isEmpty) && (
+                {(!plan || isEmpty) ? (
                     <Button onClick={handleGenerate} disabled={isGenerating}>
                         {isGenerating ? "Cooking..." : "Generate New Plan"}
                     </Button>
+                ) : (
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant="outline" disabled={isGenerating}>
+                                {isGenerating ? "Cooking..." : "Regenerate Week"}
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Regenerate Weekly Plan?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will overwrite your current weekly plan with new recipes. This action cannot be undone.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleGenerate}>Regenerate</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 )}
             </div>
 

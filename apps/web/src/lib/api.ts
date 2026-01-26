@@ -9,6 +9,16 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:80
 // --- Types ---
 
 let currentWorkspaceId: string | null = null;
+export function newIdemKey() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older environments or non-secure contexts
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 export function setApiWorkspaceId(id: string | null) {
   currentWorkspaceId = id;
@@ -128,10 +138,15 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body?: unknown, options: { idempotent?: boolean } = {}): Promise<T> {
+  const headers = getHeaders();
+  if (options.idempotent) {
+    headers.set("Idempotency-Key", newIdemKey());
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: getHeaders(),
+    headers: headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -184,7 +199,7 @@ export async function fetchRecipe(id: string): Promise<Recipe> {
 }
 
 export async function createRecipe(data: RecipeCreateInput): Promise<Recipe> {
-  return apiPost<Recipe>('/recipes', data);
+  return apiPost<Recipe>('/recipes', data, { idempotent: true });
 }
 
 export async function updateRecipe(id: string, data: Partial<RecipeCreateInput>): Promise<Recipe> {
@@ -192,7 +207,7 @@ export async function updateRecipe(id: string, data: Partial<RecipeCreateInput>)
 }
 
 export async function seedDevData(): Promise<SeedResponse> {
-  return apiPost<SeedResponse>('/dev/seed');
+  return apiPost<SeedResponse>('/dev/seed', undefined, { idempotent: true });
 }
 
 // --- Image Generation ---
@@ -217,11 +232,11 @@ export async function fetchImageStatus(recipeId: string): Promise<ImageStatus> {
 }
 
 export async function generateImage(recipeId: string): Promise<ImageGenerateResponse> {
-  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/generate`);
+  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/generate`, undefined, { idempotent: true });
 }
 
 export async function regenerateImage(recipeId: string): Promise<ImageGenerateResponse> {
-  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/regenerate`);
+  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/regenerate`, undefined, { idempotent: true });
 }
 
 
@@ -255,7 +270,7 @@ export async function exportRecipe(id: string, download = false): Promise<Portab
 
 export async function importRecipe(payload: PortableRecipe, mode: 'dedupe' | 'copy' = 'dedupe', regenImage = false): Promise<ImportResult> {
   const query = new URLSearchParams({ mode, regen_image: regenImage ? '1' : '0' });
-  return apiPost<ImportResult>(`/recipes/import?${query.toString()}`, payload);
+  return apiPost<ImportResult>(`/recipes/import?${query.toString()}`, payload, { idempotent: true });
 }
 
 // --- Pantry API ---
@@ -286,7 +301,7 @@ export async function fetchPantryItems(params?: { search?: string; useSoon?: boo
 }
 
 export async function createPantryItem(item: CreatePantryItem): Promise<PantryItem> {
-  return apiPost<PantryItem>("/pantry/", item);
+  return apiPost<PantryItem>("/pantry/", item, { idempotent: true });
 }
 
 export async function updatePantryItem(id: string, item: UpdatePantryItem): Promise<PantryItem> {
@@ -311,6 +326,33 @@ export interface GroceryListItem {
   category?: string;
   status: 'need' | 'have' | 'optional' | 'purchased';
   reason?: string;
+  pantry_item_id?: string;
+}
+
+export interface GrocerySkippedEntry {
+  plan_entry_id: string;
+  recipe_id: string;
+  title: string;
+  reason: string;
+}
+
+export interface GroceryReducedRecipe {
+  recipe_id: string;
+  title: string;
+  factor: number;
+  reason: string;
+}
+
+export interface GroceryGenerationMeta {
+  included_count: number;
+  skipped_count: number;
+  skipped_entries: GrocerySkippedEntry[];
+  reduced_recipes: GroceryReducedRecipe[];
+}
+
+export interface GroceryGenerateResponse {
+  list: GroceryList;
+  meta: GroceryGenerationMeta;
 }
 
 export interface GroceryList {
@@ -318,14 +360,27 @@ export interface GroceryList {
   source?: string;
   created_at: string;
   items: GroceryListItem[];
+  meta?: GroceryGenerationMeta;
 }
 
-export async function generateGroceryList(params: { recipeIds?: string[]; planId?: string }): Promise<GroceryList> {
-  return apiPost<GroceryList>("/grocery/generate", { recipe_ids: params.recipeIds || [], plan_id: params.planId });
+export async function generateGroceryList(params: { recipeIds?: string[]; planId?: string; includeEntryIds?: string[] }): Promise<GroceryList> {
+  // Response is { list: ..., meta: ... }
+  const res = await apiPost<GroceryGenerateResponse>("/grocery/generate", { 
+      recipe_ids: params.recipeIds || [], 
+      plan_id: params.planId,
+      include_entry_ids: params.includeEntryIds || []
+  }, { idempotent: true });
+  
+  // Attach meta to list for uniform handling
+  return {
+    ...res.list,
+    meta: res.meta
+  };
 }
 
-export async function fetchCurrentGroceryList(): Promise<GroceryList> {
-  return apiGet<GroceryList>("/grocery/current");
+export async function fetchCurrentGroceryList(recompute: boolean = false): Promise<GroceryList> {
+  const query = recompute ? "?recompute=true" : "";
+  return apiGet<GroceryList>(`/grocery/current${query}`);
 }
 
 export async function updateGroceryItem(id: string, data: { status?: string; qty?: number }): Promise<GroceryListItem> {
@@ -399,7 +454,7 @@ export async function fetchCookMethods(): Promise<MethodListResponse> {
 }
 
 export async function previewCookMethod(sessionId: string, methodKey: string): Promise<MethodPreviewResponse> {
-  return apiPost<MethodPreviewResponse>(`/cook/session/${sessionId}/method/preview`, { method_key: methodKey });
+  return apiPost<MethodPreviewResponse>(`/cook/session/${sessionId}/method/preview`, { method_key: methodKey }, { idempotent: true });
 }
 
 export async function applyCookMethod(sessionId: string, methodKey: string, steps: RecipeStep[], tradeoffs: any): Promise<CookSession> {
@@ -407,11 +462,11 @@ export async function applyCookMethod(sessionId: string, methodKey: string, step
     method_key: methodKey,
     steps_override: steps,
     method_tradeoffs: tradeoffs
-  });
+  }, { idempotent: true });
 }
 
 export async function resetCookMethod(sessionId: string): Promise<CookSession> {
-  return apiPost<CookSession>(`/cook/session/${sessionId}/method/reset`);
+  return apiPost<CookSession>(`/cook/session/${sessionId}/method/reset`, undefined, { idempotent: true });
 }
 
 export async function apiPatchSession(sessionId: string, patch: any): Promise<CookSession> {
@@ -471,14 +526,14 @@ export async function previewAdjustment(
   sessionId: string, 
   req: AdjustPreviewRequest
 ): Promise<AdjustPreviewResponse> {
-  return apiPost<AdjustPreviewResponse>(`/cook/session/${sessionId}/adjust/preview`, req);
+  return apiPost<AdjustPreviewResponse>(`/cook/session/${sessionId}/adjust/preview`, req, { idempotent: true });
 }
 
 export async function applyAdjustment(
   sessionId: string,
   req: AdjustApplyRequest
 ): Promise<CookSession> {
-  return apiPost<CookSession>(`/cook/session/${sessionId}/adjust/apply`, req);
+  return apiPost<CookSession>(`/cook/session/${sessionId}/adjust/apply`, req, { idempotent: true });
 }
 
 
@@ -527,5 +582,5 @@ export interface InsightsRequest {
 }
 
 export async function fetchInsights(params: InsightsRequest): Promise<InsightsResponse> {
-  return apiPost<InsightsResponse>("/insights/notes", params);
+  return apiPost<InsightsResponse>("/insights/notes", params, { idempotent: true });
 }

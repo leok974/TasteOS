@@ -133,6 +133,14 @@ def delete_pantry_item(
     if not item:
         raise HTTPException(status_code=404, detail="Pantry item not found")
         
+    # Unlink any grocery list items that reference this pantry item
+    # Manual unlink required because FK constraint is not SET NULL
+    from sqlalchemy import update
+    stmt = update(models.GroceryListItem).where(
+         models.GroceryListItem.pantry_item_id == item_id
+    ).values(pantry_item_id=None)
+    db.execute(stmt)
+        
     db.delete(item)
     db.commit()
 

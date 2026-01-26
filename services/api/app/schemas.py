@@ -220,6 +220,33 @@ class GroceryListOut(BaseModel):
 class GenerateGroceryRequest(BaseModel):
     recipe_ids: list[str] = []
     plan_id: Optional[str] = None
+    include_entry_ids: list[str] = []
+    include_recipe_ids: list[str] = []
+    ignore_leftovers: bool = False
+
+class GrocerySkippedEntry(BaseModel):
+    plan_entry_id: str
+    recipe_id: str
+    title: str
+    reason: str
+    details: Optional[dict] = None
+
+class GroceryReducedRecipe(BaseModel):
+    recipe_id: str
+    title: str
+    factor: float
+    reason: str
+
+class GroceryGenerationMeta(BaseModel):
+    included_count: int
+    skipped_count: int
+    skipped_entries: list[GrocerySkippedEntry] = []
+    reduced_recipes: list[GroceryReducedRecipe] = []
+    carryover_items: list[dict] = [] # {name: str, reason: str, status: str}
+
+class GroceryGenerateResponse(BaseModel):
+    list: GroceryListOut
+    meta: GroceryGenerationMeta
 
 class GroceryItemUpdate(BaseModel):
     status: Optional[str] = None # need | have | purchased | optional

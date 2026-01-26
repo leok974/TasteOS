@@ -22,6 +22,7 @@ class MealPlanEntryOut(BaseModel):
     # recipe: Optional[RecipeOut] # Circular import risk, keep simple for MVP
     recipe_title: Optional[str] = None # Helper
     is_leftover: bool
+    force_cook: bool = False
     method_choice: Optional[str]
     method_options_json: Optional[dict]
     
@@ -42,6 +43,7 @@ class PlanGenerateRequest(BaseModel):
 class EntryUpdate(BaseModel):
     recipe_id: Optional[str] = None
     is_leftover: Optional[bool] = None
+    force_cook: Optional[bool] = None
     method_choice: Optional[str] = None
 
 
@@ -135,6 +137,9 @@ def update_entry(
         if not update.method_choice: # Only if user didn't explicitly set it
              entry.method_choice = "Microwave" if entry.is_leftover else "Stove"
 
+    if update.force_cook is not None:
+        entry.force_cook = update.force_cook
+
     if update.method_choice is not None:
         entry.method_choice = update.method_choice
         
@@ -174,6 +179,7 @@ def enrich_entry(entry: MealPlanEntry, db: Session) -> MealPlanEntryOut:
         recipe_id=entry.recipe_id,
         recipe_title=title,
         is_leftover=entry.is_leftover,
+        force_cook=entry.force_cook,
         method_choice=entry.method_choice,
         method_options_json=entry.method_options_json
     )

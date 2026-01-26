@@ -1,6 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select
 
 from .. import models, schemas
 from ..deps import get_db, get_workspace
@@ -8,47 +9,135 @@ from ..agents.grocery_agent import generate_grocery_list
 
 router = APIRouter()
 
-@router.post("/generate", response_model=schemas.GroceryListOut)
+@router.post("/generate", response_model=schemas.GroceryGenerateResponse)
 def generate_list(
     request: schemas.GenerateGroceryRequest,
     workspace: models.Workspace = Depends(get_workspace),
     db: Session = Depends(get_db)
 ):
     """Generate a new grocery list based on recipes."""
-    recipe_ids = request.recipe_ids[:]
+    recipe_ids = request.recipe_ids[:] # Start with manually passed IDs
     source_override = None
     
+    # Meta tracking
+    skipped_entries = []
+    reduced_recipes = []
+    included_count = 0
+    skipped_count = 0
+    recipe_scaling = {} # recipe_id -> factor
+    
+    print(f"DEBUG: Generating Grocery List. PlanID={request.plan_id}, IncludeEntries={request.include_entry_ids}")
+
     if request.plan_id:
-        # Get plan
-        plan = db.query(models.MealPlan).filter(models.MealPlan.id == request.plan_id).first()
+        # Get plan with explicit loading
+        stmt = select(models.MealPlan).options(
+            selectinload(models.MealPlan.entries)
+        ).where(models.MealPlan.id == request.plan_id)
+        
+        plan = db.execute(stmt).scalar_one_or_none()
+        
         if plan:
-            # Loop v2: Exclude explicit leftovers
-            plan_ids = [
-                e.recipe_id for e in plan.entries 
-                if e.recipe_id and not e.is_leftover
-            ]
-            
-            # Loop v2: Exclude recipes that have active leftovers in fridge
-            # (Heuristic: If I have leftovers, I eat them instead of cooking)
-            from sqlalchemy import select
-            active_leftover_recipe_ids = db.scalars(
-                select(models.Leftover.recipe_id).where(
+            print(f"DEBUG: Found plan {plan.id}. Entries count: {len(plan.entries)}")
+            # 1. Fetch Active Leftovers Map
+            # from sqlalchemy import select  # Removed redundant local import that shadows outer scope
+            active_leftovers = db.scalars(
+                select(models.Leftover).where(
                     models.Leftover.workspace_id == workspace.id,
                     models.Leftover.consumed_at.is_(None),
                     models.Leftover.recipe_id.is_not(None)
                 )
             ).all()
-            active_leftover_set = set(active_leftover_recipe_ids)
             
-            # Filter out recipes present in leftovers
-            # (Only applies to plan generated items, or manual ones too? 
-            # Prompt says "generating from plan".
-            plan_ids = [rid for rid in plan_ids if rid not in active_leftover_set]
+            # Use dictionary for easier lookup: recipe_id -> Leftover
+            # Warning: Could have multiple leftovers for same recipe. Use most recent or sum?
+            # For simplicity, taking the first one found or summing servings.
+            # Let's map recipe_id -> list[Leftover]
+            leftover_map = {}
+            for lo in active_leftovers:
+                if lo.recipe_id not in leftover_map:
+                    leftover_map[lo.recipe_id] = []
+                leftover_map[lo.recipe_id].append(lo)
             
-            recipe_ids.extend(plan_ids)
+            # 2. Iterate Entries
+            for entry in plan.entries:
+                print(f"DEBUG: Checking Entry {entry.id} (Type {entry.meal_type}). RecipeID={entry.recipe_id}")
+                if not entry.recipe_id:
+                    continue
+                    
+                rid = entry.recipe_id
+                
+                # Check Overrides
+                explicitly_included = (
+                    entry.force_cook 
+                    or str(entry.id) in request.include_entry_ids 
+                    or str(rid) in request.include_recipe_ids
+                )
+                
+                print(f"DEBUG: Entry {entry.id} (Recipe {rid}). Explicit={explicitly_included}. Leftover={entry.is_leftover}")
+                
+                should_skip = False
+                skip_reason = None
+                reduction_factor = 1.0
+                
+                if explicitly_included:
+                    should_skip = False
+                else:
+                    # Logic 1: Explicit Leftover Plan (Always skip unless explicitly included)
+                    if entry.is_leftover:
+                        should_skip = True
+                        skip_reason = "entry_marked_leftover"
+                    
+                    # Logic 2: Active Leftover (Skip unless ignored)
+                    elif rid in leftover_map and not request.ignore_leftovers:
+                        # Check servings math
+                        los = leftover_map[rid]
+                        total_left = sum([float(lo.servings_left or 0) for lo in los])
+                        
+                        # We need planned servings to compare.
+                        # If entry has scaling or recipe has servings.
+                        # Assuming recipe default for now (or 4.0 hardcoded if missing, need access to Recipe)
+                        # We need to fetch recipe to be accurate.
+                        recipe = db.get(models.Recipe, rid)
+                        planned_servings = float(recipe.servings or 4.0)
+                        
+                        if total_left >= planned_servings:
+                            should_skip = True
+                            skip_reason = "active_leftover_exists"
+                        elif total_left > 0:
+                            # Partial reduction
+                            reduction_factor = max(0.0, (planned_servings - total_left) / planned_servings)
+                            # Log it
+                            reduced_recipes.append(schemas.GroceryReducedRecipe(
+                                recipe_id=rid,
+                                title=recipe.title,
+                                factor=reduction_factor,
+                                reason="partial_leftovers"
+                            ))
+                            
+                if should_skip:
+                    skipped_count += 1
+                    # Need title for meta
+                    title = "Unknown Recipe"
+                    # Try to get title without heavy query if possible, or single query
+                    # existing: entry.recipe (might be detached or None)
+                    r = db.get(models.Recipe, rid)
+                    if r: title = r.title
+                    
+                    skipped_entries.append(schemas.GrocerySkippedEntry(
+                        plan_entry_id=entry.id,
+                        recipe_id=rid,
+                        title=title,
+                        reason=skip_reason or "unknown"
+                    ))
+                else:
+                    included_count += 1
+                    recipe_ids.append(rid)
+                    if reduction_factor < 1.0:
+                        recipe_scaling[rid] = reduction_factor
+            
             source_override = f"plan:{request.plan_id}"
             
-        # Dedupe
+        # Dedupe recipe_ids
         recipe_ids = list(set(recipe_ids))
     
     # Logic delegated to agent
@@ -56,12 +145,31 @@ def generate_list(
         db=db,
         workspace=workspace,
         recipe_ids=recipe_ids,
-        source_override=source_override
+        source_override=source_override,
+        recipe_scaling=recipe_scaling
     )
-    return grocery_list
+
+    # Persist the list to DB
+    db.commit()
+    db.refresh(grocery_list)
+    
+    # Build Meta
+    # Extract hacked carryover prop
+    carryover = getattr(grocery_list, "_carryover_items", [])
+    
+    meta = schemas.GroceryGenerationMeta(
+        included_count=included_count,
+        skipped_count=skipped_count,
+        skipped_entries=skipped_entries,
+        reduced_recipes=reduced_recipes,
+        carryover_items=carryover
+    )
+    
+    return schemas.GroceryGenerateResponse(list=grocery_list, meta=meta)
 
 @router.get("/current", response_model=schemas.GroceryListOut)
 def get_current_list(
+    recompute: bool = False,
     workspace: models.Workspace = Depends(get_workspace),
     db: Session = Depends(get_db)
 ):
@@ -73,6 +181,54 @@ def get_current_list(
     if not grocery_list:
         raise HTTPException(status_code=404, detail="No active grocery list found")
         
+    if recompute:
+        from sqlalchemy import func
+        # Re-check pantry items
+        pantry_items = db.query(models.PantryItem).filter(
+            models.PantryItem.workspace_id == workspace.id
+        ).all()
+        pantry_map = {p.name.lower(): p for p in pantry_items}
+        
+        changes = 0
+        for item in grocery_list.items:
+            key = item.name.lower()
+            in_pantry = False
+            pantry_reason = ""
+            
+            if key in pantry_map:
+                in_pantry = True
+                pantry_reason = f"Pantry match: {pantry_map[key].name}"
+            else:
+                 # Fuzzy check
+                for p_name, p_item in pantry_map.items():
+                    if p_name in key or key in p_name:
+                        in_pantry = True
+                        pantry_reason = f"Pantry match: {p_item.name}"
+                        break
+            
+            # Logic: 
+            # If status="have" (Pantry Match) AND NOT in_pantry -> "need"
+            # If status="need" AND in_pantry -> "have"
+            
+            # We only flip 'have' back to 'need' if the reason was automated.
+            # If user MANUALLY set it to 'have' (via UI toggle), we shouldn't flip it back just because pantry is empty.
+            # But the user specifically asked: "only mark have if there is a match in pantry_items right now"
+            # And "Delet[ing] pantry items... it's not reading pantry for that bucket"
+            # So let's implement the strict recompute.
+            
+            if in_pantry and item.status == "need":
+                item.status = "have"
+                item.reason = pantry_reason
+                changes += 1
+            elif not in_pantry and item.status == "have" and "Pantry match" in (item.reason or ""):
+                item.status = "need"
+                item.reason = "Missing from pantry (recompute)"
+                changes += 1
+        
+        if changes > 0:
+            db.commit()
+            db.refresh(grocery_list)
+            
     return grocery_list
 
 @router.patch("/items/{item_id}", response_model=schemas.GroceryListItemOut)

@@ -4,7 +4,7 @@
 
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, newIdemKey } from "@/lib/api";
 
 // Helper function for API calls with workspace headers
 async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -103,6 +103,7 @@ export function useCookSessionStart() {
         mutationFn: async (recipeId: string) => {
             return cookFetch<CookSession>("/cook/session/start", {
                 method: "POST",
+                headers: { "Idempotency-Key": newIdemKey() },
                 body: JSON.stringify({ recipe_id: recipeId }),
             });
         },
@@ -148,6 +149,7 @@ export function useCookSessionPatch() {
             if (!sessionId) throw new Error("Session ID required");
             return cookFetch<CookSession>(`/cook/session/${sessionId}`, {
                 method: "PATCH",
+                headers: { "Idempotency-Key": newIdemKey() },
                 body: JSON.stringify(patch),
             });
         },
@@ -212,6 +214,7 @@ export function useCookAssist() {
         }) => {
             return cookFetch<AssistResponse>("/cook/assist", {
                 method: "POST",
+                headers: { "Idempotency-Key": newIdemKey() },
                 body: JSON.stringify(request),
             });
         },

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,13 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
         queryKey: ['workspaces'],
         queryFn: () => apiGet<Workspace[]>('/workspaces/'),
     });
+
+    // Auto-select first workspace if none selected
+    useEffect(() => {
+        if (!workspaceId && workspaces && workspaces.length > 0) {
+            setWorkspaceId(workspaces[0].id);
+        }
+    }, [workspaceId, workspaces, setWorkspaceId]);
 
     const selectedWorkspace = workspaces?.find(w => w.id === workspaceId) || workspaces?.[0];
 

@@ -1,18 +1,11 @@
 
 import { useState, useCallback } from 'react';
-import useSWR, { mutate } from 'swr';
-
-// Simple stub for toast since module is missing
-const useToast = () => ({
-    toast: (props: any) => console.log('Toast:', props)
-});
+import useSWR, { useSWRConfig } from 'swr';
+import { useToast } from '@/hooks/use-toast';
+import { apiGet, apiPost } from '@/lib/api';
+import { useWorkspace } from '../workspaces/WorkspaceProvider';
 
 const API_BASE = 'http://localhost:8000/api';
-
-const fetcher = (url: string) => fetch(url).then((res) => {
-    if (!res.ok) throw new Error('Failed to fetch');
-    return res.json();
-});
 
 export interface PlanEntry {
     id: string;
@@ -31,14 +24,19 @@ export interface MealPlan {
     entries: PlanEntry[];
 }
 
-import { apiGet } from '@/lib/api';
-import { useWorkspace } from '../workspaces/WorkspaceProvider';
+import { format, startOfWeek } from 'date-fns';
 
 export function useCurrentPlan() {
     const { workspaceId } = useWorkspace();
+    
+    // Calculate current week start consistently with generation logic
+    const today = new Date();
+    const monday = startOfWeek(today, { weekStartsOn: 1 });
+    const weekStartStr = format(monday, 'yyyy-MM-dd');
+
     const { data, error, isLoading } = useSWR<MealPlan>(
-        workspaceId ? ['/plan/current', workspaceId] : null,
-        ([url]) => apiGet<MealPlan>(url),
+        workspaceId ? ['/plan/current', workspaceId, weekStartStr] : null,
+        ([url, , date]) => apiGet<MealPlan>(`${url}?week_start=${date}`),
         {
             shouldRetryOnError: false,
         }
@@ -54,43 +52,60 @@ export function useCurrentPlan() {
 
 export function useGeneratePlan() {
     const { toast } = useToast();
+    const { mutate } = useSWRConfig();
+    const { workspaceId } = useWorkspace();
     const [isGenerating, setIsGenerating] = useState(false);
 
     const generate = useCallback(async (weekStart: string) => {
+        if (!workspaceId) {
+            toast({ title: 'Error', description: 'No workspace selected. Please Create or Select a Workspace.', variant: 'destructive' });
+            return;
+        }
         setIsGenerating(true);
+
         try {
-            const res = await fetch(`${API_BASE}/plan/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ week_start: weekStart }),
-            });
-
-            if (!res.ok) throw new Error('Failed to generate plan');
-
-            const data = await res.json();
-            mutate(`${API_BASE}/plan/current`, data, false);
+            const data = await apiPost<MealPlan>('/plan/generate', { week_start: weekStart });
+            
+            // Update the cache with the new plan using the EXACT key structure
+            await mutate(
+                ['/plan/current', workspaceId, weekStart],
+                data,
+                false // revalidate
+            );
+            
             toast({ title: 'Plan Generated', description: 'Your weekly meal plan is ready!' });
             return data;
         } catch (err) {
+            console.error(err);
             toast({ title: 'Error', description: 'Failed to generate plan.', variant: 'destructive' });
             throw err;
         } finally {
             setIsGenerating(false);
         }
-    }, [toast]);
+    }, [toast, mutate, workspaceId]);
 
     return { generate, isGenerating };
 }
 
+import { apiPatch } from '@/lib/api';
+
 export function useUpdateEntry() {
     const { toast } = useToast();
-
-    // We don't use useSWRMutation here to keep control over optimistic logic, 
-    // or we can use it but manual cache manipulation is key.
+    const { mutate } = useSWRConfig();
+    const { workspaceId } = useWorkspace();
 
     // Manual mutate function
     const updateEntry = useCallback(async (entryId: string, updates: { recipe_id?: string; is_leftover?: boolean; method_choice?: string }) => {
-        const key = `${API_BASE}/plan/current`;
+        if (!workspaceId) {
+            toast({ title: 'Error', description: 'No workspace selected.', variant: 'destructive' });
+            return;
+        }
+
+        // Must match the key structure in useCurrentPlan
+        const today = new Date();
+        const monday = startOfWeek(today, { weekStartsOn: 1 });
+        const weekStartStr = format(monday, 'yyyy-MM-dd');
+        const key = ['/plan/current', workspaceId, weekStartStr];
 
         // 1. Optimistic Update
         await mutate(key, (currentPlan: MealPlan | undefined) => {
@@ -99,7 +114,7 @@ export function useUpdateEntry() {
             // Shallow copy plan and entries
             const newEntries = currentPlan.entries.map(e => {
                 if (e.id === entryId) {
-                    return { ...e, ...updates, recipe_title: "Loading..." }; // Optimistic title? Or just keep old?
+                    return { ...e, ...updates, recipe_title: "Loading..." }; 
                 }
                 return e;
             });
@@ -108,15 +123,7 @@ export function useUpdateEntry() {
         }, false); // don't revalidate yet
 
         try {
-            const res = await fetch(`${API_BASE}/plan/entries/${entryId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updates),
-            });
-
-            if (!res.ok) throw new Error('Failed to update entry');
-
-            const updatedEntry = await res.json();
+            const updatedEntry = await apiPatch<PlanEntry>(`/plan/entries/${entryId}`, updates);
 
             // 2. Real Update
             await mutate(key, (currentPlan: MealPlan | undefined) => {
@@ -128,11 +135,12 @@ export function useUpdateEntry() {
             toast({ title: 'Plan Updated', description: 'Meal updated successfully.' });
 
         } catch (err) {
+            console.error(err);
             // 3. Rollback
             toast({ title: 'Update Failed', description: 'Could not update meal.', variant: 'destructive' });
             mutate(key); // Revalidate to get true server state
         }
-    }, [toast]);
+    }, [toast, mutate, workspaceId]);
 
     return { updateEntry };
 }

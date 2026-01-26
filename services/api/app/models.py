@@ -486,6 +486,7 @@ class MealPlanEntry(Base):
     )
     
     is_leftover: Mapped[bool] = mapped_column(default=False)
+    force_cook: Mapped[bool] = mapped_column(default=False)
     
     # Method choice (e.g., "Air Fryer", "Microwave")
     method_choice: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

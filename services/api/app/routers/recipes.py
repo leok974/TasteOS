@@ -18,9 +18,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
 from ..deps import get_workspace
-from ..models import Recipe, RecipeStep, RecipeImage, Workspace
-from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch
+from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry
+from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate
 from ..settings import settings
+from ..services.events import log_event
+from sqlalchemy import desc
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -688,3 +690,138 @@ def ingest_recipe(
         db.commit()
     
     return _recipe_to_out(recipe)
+
+
+# --- Recipe Note History Endpoints ---
+
+@router.get("/recipes/{recipe_id}/notes", response_model=list[RecipeNoteEntryOut])
+def list_recipe_notes(
+    recipe_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """List note history entries for a recipe, newest first."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+        
+    entries = db.query(RecipeNoteEntry).filter(
+        RecipeNoteEntry.recipe_id == recipe_id,
+        RecipeNoteEntry.workspace_id == workspace.id,
+        RecipeNoteEntry.deleted_at.is_(None)
+    ).order_by(desc(RecipeNoteEntry.created_at)).limit(limit).all()
+    
+    return entries
+
+
+@router.post("/recipes/{recipe_id}/notes", response_model=RecipeNoteEntryOut)
+def create_recipe_note(
+    recipe_id: str,
+    body: RecipeNoteEntryCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Create a new note entry, optionally appending to legacy field."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # Duplicate session check
+    if body.session_id:
+        existing = db.query(RecipeNoteEntry).filter(
+            RecipeNoteEntry.recipe_id == recipe_id,
+            RecipeNoteEntry.session_id == body.session_id,
+            RecipeNoteEntry.deleted_at.is_(None)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409, 
+                detail=f"Notes for this session already saved (id: {existing.id})"
+            )
+
+    entry = RecipeNoteEntry(
+        workspace_id=workspace.id,
+        recipe_id=recipe_id,
+        session_id=body.session_id,
+        source=body.source,
+        title=body.title,
+        content_md=body.content_md,
+        applied_to_recipe_notes=body.apply_to_recipe_notes
+    )
+    db.add(entry)
+    
+    # Sync legacy field
+    if body.apply_to_recipe_notes:
+        append_str = f"\n\n---\n{body.title}\n{body.content_md}\n"
+        recipe.notes = (recipe.notes or "") + append_str
+
+    log_event(
+        db, 
+        workspace_id=workspace.id, 
+        session_id=body.session_id, 
+        type="recipe_note_create", 
+        meta={"recipe_id": recipe_id, "note_id": entry.id, "source": body.source}
+    )
+    
+    db.commit()
+    return entry
+
+
+@router.delete("/recipes/{recipe_id}/notes/{note_id}")
+def delete_recipe_note(
+    recipe_id: str,
+    note_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Soft-delete a note entry."""
+    entry = db.query(RecipeNoteEntry).filter(
+        RecipeNoteEntry.id == note_id,
+        RecipeNoteEntry.recipe_id == recipe_id,
+        RecipeNoteEntry.workspace_id == workspace.id
+    ).first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Note entry not found")
+        
+    from datetime import datetime
+    entry.deleted_at = datetime.now()
+    
+    log_event(
+        db, 
+        workspace_id=workspace.id, 
+        type="recipe_note_delete", 
+        meta={"recipe_id": recipe_id, "note_id": note_id}
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/recipes/{recipe_id}/notes/{note_id}/restore", response_model=RecipeNoteEntryOut)
+def restore_recipe_note(
+    recipe_id: str,
+    note_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Undo delete of a note entry."""
+    entry = db.query(RecipeNoteEntry).filter(
+        RecipeNoteEntry.id == note_id,
+        RecipeNoteEntry.recipe_id == recipe_id,
+        RecipeNoteEntry.workspace_id == workspace.id
+    ).first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Note entry not found")
+        
+    entry.deleted_at = None
+    
+    log_event(
+        db, 
+        workspace_id=workspace.id, 
+        type="recipe_note_restore", 
+        meta={"recipe_id": recipe_id, "note_id": note_id}
+    )
+    db.commit()
+    return entry

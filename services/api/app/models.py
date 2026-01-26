@@ -24,6 +24,7 @@ from sqlalchemy import (
     Index,
     ARRAY,
 )
+import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func, false
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -110,6 +111,10 @@ class Recipe(Base):
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(
         "RecipeIngredient", back_populates="recipe", cascade="all, delete-orphan"
     )
+    notes_history: Mapped[list["RecipeNoteEntry"]] = relationship(
+        "RecipeNoteEntry", back_populates="recipe", cascade="all, delete-orphan",
+        order_by="desc(RecipeNoteEntry.created_at)"
+    )
 
     @property
     def primary_image(self) -> Optional["RecipeImage"]:
@@ -195,6 +200,46 @@ class RecipeImage(Base):
         "Recipe", back_populates="images", foreign_keys="[RecipeImage.recipe_id]"
     )
 
+
+
+class RecipeNoteEntry(Base):
+    """History of notes added to a recipe."""
+    __tablename__ = "recipe_note_entries"
+    __table_args__ = (
+        Index("ix_recipe_note_entries_workspace_id", "workspace_id"),
+        Index("ix_recipe_note_entries_recipe_lookup", "workspace_id", "recipe_id", "created_at"),
+        Index("ix_recipe_note_entries_session_lookup", "workspace_id", "session_id"),
+        Index("ix_recipe_note_entries_unique_session", "session_id", "recipe_id", unique=True, postgresql_where=sa.text("deleted_at IS NULL")),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=generate_uuid
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    recipe_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("cook_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    
+    # manual | cook_session | ai_polish
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    content_md: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    applied_to_recipe_notes: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="notes_history")
+    workspace: Mapped["Workspace"] = relationship("Workspace")
 
 
 from sqlalchemy import Date, Numeric

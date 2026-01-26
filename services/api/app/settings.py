@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     ai_mode: str = "mock"  # "mock" or "gemini"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-image"
+    gemini_text_model: str = "gemini-3-flash-preview"
+    gemini_text_model_fallback: str = "gemini-3-pro-preview"
 
     # Object store (S3-compatible)
     object_store_endpoint: str = "http://localhost:9000"

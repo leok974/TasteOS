@@ -298,6 +298,7 @@ class SummaryPolishRequest(BaseModel):
     style: Literal["concise", "friendly", "chef"] = "concise"
     include_timeline: bool = False
     max_bullets: int = 6
+    freeform_note: Optional[str] = None
 
 class SummaryPolishResponse(BaseModel):
     polished: PolishedSummary
@@ -309,6 +310,7 @@ class SessionNotesPreviewRequest(BaseModel):
     use_ai: bool = False
     style: Literal["concise", "friendly", "chef"] = "concise"
     freeform: Optional[str] = None
+    polished_data: Optional[PolishedSummary] = None
 
 class SessionNotesPreviewResponse(BaseModel):
     proposal: dict # { recipe_patch: { notes_append: [] }, preview_markdown: str, counts: { lines: int } }
@@ -316,6 +318,30 @@ class SessionNotesPreviewResponse(BaseModel):
 class SessionNotesApplyRequest(BaseModel):
     recipe_id: str
     notes_append: list[str]
+    session_id: Optional[str] = None
+    create_entry: bool = True
+
+# --- Recipe Note Entries ---
+
+class RecipeNoteEntryOut(BaseModel):
+    id: str
+    recipe_id: str
+    session_id: Optional[str]
+    created_at: datetime
+    source: str
+    title: str
+    content_md: str
+    applied_to_recipe_notes: bool
+    
+    class Config:
+        from_attributes = True
+
+class RecipeNoteEntryCreate(BaseModel):
+    source: str
+    title: str
+    content_md: str
+    session_id: Optional[str] = None
+    apply_to_recipe_notes: bool = True
 
 # --- Method Switcher Schemas ---
 

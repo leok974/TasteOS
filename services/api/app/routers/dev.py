@@ -8,13 +8,47 @@ import uuid
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
 
-from ..db import get_db
 from ..db import get_db
 from ..models import Workspace, Recipe, RecipeStep, RecipeIngredient
 from ..schemas import SeedResponse, WorkspaceOut
+from ..ai.summary import get_client
+from ..ai.utils import normalize_model_id
+from ..settings import settings
 
 router = APIRouter()
+
+
+class AIPingRequest(BaseModel):
+    model: Optional[str] = None
+
+@router.post("/dev/ai/ping")
+def ping_ai(body: AIPingRequest):
+    """Dev-only check to see if AI model is responsive."""
+    client = get_client()
+    if not client:
+        return {"ok": False, "error": "No API key configured"}
+    
+    model = normalize_model_id(body.model or settings.gemini_text_model)
+    
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents="Say 'pong' and nothing else."
+        )
+        return {
+            "ok": True,
+            "text": response.text,
+            "model": model
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "model": model
+        }
 
 
 # Sample recipe data matching the UI prototype

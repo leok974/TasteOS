@@ -6,6 +6,8 @@ from google import genai
 from google.genai import types
 
 from ..schemas import PolishedSummary
+from ..settings import settings
+from .utils import normalize_model_id
 
 logger = logging.getLogger("tasteos.ai")
 
@@ -63,8 +65,10 @@ def polish_summary(
         Max bullets: {max_bullets}
         """
 
+        model_id = normalize_model_id(settings.gemini_text_model)
+        
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model=model_id,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=formatted_system_prompt,
@@ -74,7 +78,7 @@ def polish_summary(
         )
         
         if not response.text:
-            logger.error("Gemini returned empty response")
+            logger.error(f"Gemini returned empty response from model {model_id}")
             return _fallback_summary(facts)
 
         # Parse and validate
@@ -82,7 +86,7 @@ def polish_summary(
         return PolishedSummary(**data)
 
     except Exception as e:
-        logger.error(f"Gemini polish failed: {e}")
+        logger.error(f"Gemini polish failed with model {model_id if 'model_id' in locals() else 'unknown'}: {e}")
         return _fallback_summary(facts)
 
 def _fallback_summary(facts: Dict[str, Any]) -> PolishedSummary:
@@ -105,12 +109,16 @@ def _fallback_summary(facts: Dict[str, Any]) -> PolishedSummary:
     if timers:
         bullets.append(f"Timers used: {len(timers)}")
         
-    if facts.get("user_freeform_note"):
-        bullets.append(f"Note: {facts['user_freeform_note']}")
-
+    user_note = facts.get("user_freeform_note")
+    tldr = "Completed cooking session."
+    
+    if user_note:
+        bullets.append(f"Note: {user_note}")
+        tldr = user_note # Promote note to TLDR on fallback
+        
     return PolishedSummary(
         title="Cook Session (Auto-Summary)",
-        tldr="Completed cooking session.",
+        tldr=tldr,
         bullets=bullets,
         next_time=[],
         warnings=[],

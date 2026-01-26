@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from ..db import get_db
 from ..deps import get_workspace
-from ..models import Workspace, CookSession, Recipe
+from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry
 from ..services.ai_service import ai_service
 from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
@@ -1332,7 +1332,7 @@ def polish_session_summary(
         .order_by(CookSessionEvent.created_at)
     ).scalars().all()
     
-    facts = _build_session_facts(session, recipe, events)
+    facts = _build_session_facts(session, recipe, events, freeform=body.freeform_note)
     
     # Call Gemini
     polished = polish_summary(facts, style=body.style, max_bullets=body.max_bullets)
@@ -1371,14 +1371,17 @@ def preview_session_notes(
     
     # v10.1: AI Polish Integration
     if body.use_ai:
-        recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
-        events = db.execute(
-            select(CookSessionEvent)
-            .where(CookSessionEvent.session_id == session_id)
-        ).scalars().all()
-        
-        facts = _build_session_facts(session, recipe, events, freeform=body.freeform)
-        polished = polish_summary(facts, style=body.style)
+        if body.polished_data:
+            polished = body.polished_data
+        else:
+            recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+            events = db.execute(
+                select(CookSessionEvent)
+                .where(CookSessionEvent.session_id == session_id)
+            ).scalars().all()
+            
+            facts = _build_session_facts(session, recipe, events, freeform=body.freeform)
+            polished = polish_summary(facts, style=body.style)
         
         # Use AI output for notes structure
         if polished.next_time:
@@ -1443,11 +1446,36 @@ def apply_session_notes(
         
     recipe = db.scalar(select(Recipe).where(Recipe.id == body.recipe_id))
     if not recipe: raise HTTPException(404, "Recipe not found")
+
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    title = f"Cook Session ({date_str})"
+    content_md = "\n".join([f"- {n}" for n in body.notes_append])
+
+    # 1. Create Recipe Note Entry (New Architecture)
+    if body.create_entry:
+        # Check for duplicate
+        existing_entry = db.query(RecipeNoteEntry).filter(
+            RecipeNoteEntry.recipe_id == recipe.id,
+            RecipeNoteEntry.session_id == session_id,
+            RecipeNoteEntry.deleted_at.is_(None)
+        ).first()
+        
+        if not existing_entry:
+            entry = RecipeNoteEntry(
+                workspace_id=recipe.workspace_id,
+                recipe_id=recipe.id,
+                session_id=session_id,
+                source="cook_session",
+                title=title,
+                content_md=content_md,
+                applied_to_recipe_notes=True 
+            )
+            db.add(entry)
     
-    # Append
+    # 2. Append to legacy field (Compatibility)
     existing = recipe.notes or ""
-    header = f"\n\n---\nCook Session ({datetime.now().strftime('%Y-%m-%d')}):"
-    new_block = "\n" + "\n".join([f"- {n}" for n in body.notes_append])
+    header = f"\n\n---\n{title}:"
+    new_block = "\n" + content_md
     
     # Safety: Limit total size?
     if len(existing) + len(header) + len(new_block) > 10000:

@@ -64,6 +64,8 @@ def generate_week_plan(
              return score
         
         all_recipes.sort(key=score_recipe, reverse=True)
+    else:
+        priority_ingredients = set()
         
     anchors = all_recipes[:4]  # Top recipes (prioritized) as anchors
     pool = all_recipes[4:] + all_recipes # Allow repeats if low on recipes
@@ -85,46 +87,7 @@ def generate_week_plan(
         db.add(plan)
         db.flush() # get ID
         
-    entries: List[MealPlanEntry] = []
-    
-    # Days: 0=Mon, 6=Sun
-    for day_offset in range(7):
-        current_date = week_start + timedelta(days=day_offset)
-        
-        # --- Dinner Logic ---
-        # Anchor days: Mon(0), Wed(2), Fri(4), Sun(6)
-        if day_offset in [0, 2, 4, 6] and anchors:
-            # Pick next anchor
-            recipe = anchors.pop(0) if anchors else random.choice(all_recipes)
-            entries.append(create_entry(plan.id, current_date, "dinner", recipe=recipe))
-            
-            # Save for leftover next day lunch?
-            if day_offset < 6: # Next day exists in this week
-                next_day_lunch_needed = True # Simplified
-                if next_day_lunch_needed:
-                     # Add to a queue or just handle in next iteration?
-                     # Let's handle explicit leftovers here strictly.
-                     pass 
-        else:
-            # Gap filling dinner
-            # Try to pick something different from yesterday's cuisine?
-            recipe = random.choice(all_recipes)
-            entries.append(create_entry(plan.id, current_date, "dinner", recipe=recipe))
-
-    # --- Lunch Logic ---
-    # Need to see if yesterday's dinner was "batchable" (for MVP assume all anchors are)
-    
-    # Re-loop to fill lunches now that we kind of know dinners? 
-    # Actually simpler: 
-    # Mon Lunch: Random/Quick
-    # Tue Lunch: Leftover from Mon Dinner
-    # Wed Lunch: Random/Quick
-    # Thu Lunch: Leftover from Wed Dinner
-    # Fri Lunch: Random/Quick
-    # Sat Lunch: Leftover from Fri Dinner
-    # Sun Lunch: Leftover from Sat Dinner or Special?
-    
-    # Let's map the specific schedule for MVP deterministic feel
+    # --- Strict Schedule Logic ---
     schedule = {
         0: {"lunch": "fresh", "dinner": "anchor"}, # Mon
         1: {"lunch": "leftover", "dinner": "gap"},   # Tue
@@ -135,8 +98,11 @@ def generate_week_plan(
         6: {"lunch": "leftover", "dinner": "anchor"},# Sun
     }
     
-    # Reset anchors for strict scheduling
-    random.shuffle(all_recipes)
+    # Use the sorted all_recipes as the source queue
+    # If we shuffled here, we'd lose the 'use soon' priority
+    if not use_soon_items:
+        random.shuffle(all_recipes)
+    
     anchors_queue = list(all_recipes) # Copy
     
     # Clear entries and restart with strict schedule for clarity
@@ -157,7 +123,9 @@ def generate_week_plan(
             else:
                 dinner_recipe = random.choice(all_recipes)
         else:
-            # Gap
+            # Gap - Pick something from the pool (can be random)
+            # If we want to maintain high urgency usage, we should pick from top too?
+            # Let's pick random from top 50%? or just random.
             dinner_recipe = random.choice(all_recipes)
             
         entries.append(create_entry(plan.id, current_date, "dinner", recipe=dinner_recipe))
@@ -176,6 +144,40 @@ def generate_week_plan(
     db.add_all(entries)
     db.commit()
     db.refresh(plan)
+    
+    # Meta Calculation for Use Soon
+    used_use_soon = set()
+    print(f"DEBUG_PLANNER: use_soon_items count: {len(use_soon_items)}")
+    if use_soon_items:
+        # Scan entries for used priority ingredients
+        # ... logic ...
+        pass
+        
+        # Re-fetch or inspect used recipe IDs
+        used_rids = {e.recipe_id for e in entries if e.recipe_id}
+        # Get recipes (we have them in all_recipes memory, but easier to just check against priority)
+        # We can scan all_recipes where id in used_rids
+        
+        used_recipes = [r for r in all_recipes if r.id in used_rids]
+        
+        for r in used_recipes:
+             for ing in r.ingredients:
+                 ing_name = ing.name.lower()
+                 if ing_name in priority_ingredients:
+                     used_use_soon.add(ing_name)
+                 else:
+                     # Check substring match
+                     for p in priority_ingredients:
+                         if p in ing_name:
+                             used_use_soon.add(p)
+    
+    print(f"DEBUG_PLANNER: used_use_soon: {used_use_soon}")
+    plan.meta = {
+        "use_soon_used": list(used_use_soon),
+        "boost_applied": bool(use_soon_items)
+    }
+    print(f"DEBUG_PLANNER: plan.meta attached: {plan.meta}")
+
     return plan
 
 def create_entry(plan_id, date_obj, meal_type, recipe, is_leftover=False):

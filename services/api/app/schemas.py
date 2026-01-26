@@ -168,6 +168,7 @@ class PantryItemBase(BaseModel):
     unit: Optional[str] = None
     category: Optional[str] = None
     expires_on: Optional[date] = None
+    opened_on: Optional[date] = None
     source: str = "manual"
     notes: Optional[str] = None
 
@@ -180,6 +181,7 @@ class PantryItemUpdate(BaseModel):
     unit: Optional[str] = None
     category: Optional[str] = None
     expires_on: Optional[date] = None
+    opened_on: Optional[date] = None
     source: Optional[str] = None
     notes: Optional[str] = None
 
@@ -205,6 +207,9 @@ class GroceryListItemOut(BaseModel):
     pantry_item_id: Optional[str] = None
     purchased_at: Optional[datetime] = None
     
+    # Transient fields (calculated at runtime)
+    expiry_days: Optional[int] = None
+
     class Config:
         from_attributes = True
 

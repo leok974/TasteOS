@@ -1,5 +1,6 @@
 """Grocery List Agent."""
 from typing import Optional
+from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from ..models import Workspace, Recipe, GroceryList, GroceryListItem, PantryItem
@@ -138,6 +139,22 @@ def generate_grocery_list(
         
     db.commit()
     db.refresh(grocery_list)
+    
+    # Re-populate transient expiry for immediate return
+    today = date.today()
+    for item in grocery_list.items:
+        key = item.name.lower()
+        matched = None
+        if key in pantry_map:
+            matched = pantry_map[key]
+        else:
+            for p_name, p_item in pantry_map.items():
+                if p_name in key or key in p_name:
+                    matched = p_item
+                    break
+        
+        if matched and matched.expires_on:
+            item.expiry_days = (matched.expires_on - today).days
     
     # Attach tracking prop to object temporarily (hack to pass to router)
     grocery_list._carryover_items = carryover_items

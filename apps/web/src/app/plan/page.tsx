@@ -19,9 +19,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { format, startOfWeek, addDays } from 'date-fns';
 
+import { Plus, Leaf, X } from 'lucide-react';
+import { useState } from 'react';
+
 export default function PlanPage() {
     const { plan, isLoading, isEmpty } = useCurrentPlan();
     const { generate, isGenerating } = useGeneratePlan();
+    const [showBoostBanner, setShowBoostBanner] = useState(true);
     
     // Debugging visibility
     console.log("PlanPage Render:", { hasPlan: !!plan, isEmpty, isLoading });
@@ -40,6 +44,35 @@ export default function PlanPage() {
         <div className="container py-8 max-w-7xl mx-auto space-y-8">
             {/* Version Marker to confirm HMR */}
             <div className="hidden">v2.2</div>
+
+            {plan?.meta?.boost_applied && showBoostBanner && (
+                <div 
+                    data-testid="plan-use-soon-banner" 
+                    className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-3 relative animate-in fade-in slide-in-from-top-2"
+                >
+                    <div className="text-green-600 dark:text-green-400 mt-0.5">
+                        <Leaf className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 pr-6">
+                         <h3 className="text-sm font-semibold text-green-900 dark:text-green-100">
+                             Optimized to use your pantry
+                         </h3>
+                         <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                             This week's plan prioritizes ingredients you need to use soon: {' '}
+                             <span className="font-medium">
+                                 {plan.meta.use_soon_used ? plan.meta.use_soon_used.slice(0, 3).join(", ") : ""}
+                                 {plan.meta.use_soon_used && plan.meta.use_soon_used.length > 3 && `, +${plan.meta.use_soon_used.length - 3} more`}
+                             </span>
+                         </p>
+                    </div>
+                    <button 
+                        onClick={() => setShowBoostBanner(false)}
+                        className="absolute top-3 right-3 text-green-700/50 hover:text-green-800 dark:text-green-400/50 dark:hover:text-green-300"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
 
             <div className="flex items-center justify-between">
                 <div>

@@ -283,6 +283,7 @@ export interface PantryItem {
   unit?: string;
   category?: string;
   expires_on?: string; // YYYY-MM-DD
+  opened_on?: string; // YYYY-MM-DD
   source: string;
   notes?: string;
   created_at: string;
@@ -295,7 +296,11 @@ export type UpdatePantryItem = Partial<CreatePantryItem>;
 export async function fetchPantryItems(params?: { search?: string; useSoon?: boolean }): Promise<PantryItem[]> {
   const searchParams = new URLSearchParams();
   if (params?.search) searchParams.set("q", params.search);
-  if (params?.useSoon) searchParams.set("use_soon", "1");
+  
+  if (params?.useSoon) {
+      // Use the specific endpoint for sorted results
+      return apiGet<PantryItem[]>("/pantry/use-soon?days=5");
+  }
 
   return apiGet<PantryItem[]>(`/pantry/?${searchParams.toString()}`);
 }
@@ -327,6 +332,7 @@ export interface GroceryListItem {
   status: 'need' | 'have' | 'optional' | 'purchased';
   reason?: string;
   pantry_item_id?: string;
+  expiry_days?: number; // Runtime calculated
 }
 
 export interface GrocerySkippedEntry {
@@ -381,6 +387,10 @@ export async function generateGroceryList(params: { recipeIds?: string[]; planId
 export async function fetchCurrentGroceryList(recompute: boolean = false): Promise<GroceryList> {
   const query = recompute ? "?recompute=true" : "";
   return apiGet<GroceryList>(`/grocery/current${query}`);
+}
+
+export async function clearGroceryList(): Promise<void> {
+  return apiDelete<void>(`/grocery/current`);
 }
 
 export async function updateGroceryItem(id: string, data: { status?: string; qty?: number }): Promise<GroceryListItem> {

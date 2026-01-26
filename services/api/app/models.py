@@ -273,6 +273,7 @@ class PantryItem(Base):
     
     # Expiry for "use soon" logic
     expires_on: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    opened_on: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
     use_soon_at: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

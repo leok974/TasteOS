@@ -18,10 +18,17 @@ export interface PlanEntry {
     method_options_json?: any;
 }
 
+export interface PlanMeta {
+    boost_applied: boolean;
+    boost_reason?: string;
+    expiring_ingredients?: string[];
+}
+
 export interface MealPlan {
     id: string;
     week_start: string;
     entries: PlanEntry[];
+    meta?: PlanMeta;
 }
 
 import { format, startOfWeek } from 'date-fns';

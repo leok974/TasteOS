@@ -4,6 +4,7 @@ import {
     generateGroceryList,
     fetchCurrentGroceryList,
     updateGroceryItem,
+    clearGroceryList,
 } from "@/lib/api";
 
 import { useWorkspace } from '../workspaces/WorkspaceProvider';
@@ -12,6 +13,18 @@ export const groceryKeys = {
     all: ["grocery"] as const,
     current: () => [...groceryKeys.all, "current"] as const,
 };
+
+export function useClearGrocery() {
+    const queryClient = useQueryClient();
+    const { workspaceId } = useWorkspace();
+
+    return useMutation({
+        mutationFn: () => clearGroceryList(),
+        onSuccess: () => {
+             queryClient.setQueryData([...groceryKeys.current(), { workspaceId }], null);
+        }
+    });
+}
 
 export function useCurrentGrocery() {
     const { workspaceId } = useWorkspace();

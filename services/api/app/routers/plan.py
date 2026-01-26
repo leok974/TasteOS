@@ -33,6 +33,7 @@ class MealPlanOut(BaseModel):
     id: str
     week_start: date
     entries: List[MealPlanEntryOut]
+    meta: Optional[dict] = None
     
     class Config:
         from_attributes = True
@@ -160,7 +161,8 @@ def enrich_plan_response(plan: MealPlan, db: Session) -> MealPlanOut:
     return MealPlanOut(
         id=plan.id,
         week_start=plan.week_start,
-        entries=entries_out
+        entries=entries_out,
+        meta=getattr(plan, "meta", None)
     )
 
 def enrich_entry(entry: MealPlanEntry, db: Session) -> MealPlanEntryOut:

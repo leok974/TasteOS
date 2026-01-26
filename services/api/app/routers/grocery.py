@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
+from datetime import date, datetime
 
 from .. import models, schemas
 from ..deps import get_db, get_workspace
@@ -189,46 +190,55 @@ def get_current_list(
         ).all()
         pantry_map = {p.name.lower(): p for p in pantry_items}
         
+        today = date.today()
         changes = 0
+        
+        # Pass 1: DB Updates (Status Sync)
         for item in grocery_list.items:
             key = item.name.lower()
-            in_pantry = False
-            pantry_reason = ""
+            matched_item = None
             
             if key in pantry_map:
-                in_pantry = True
-                pantry_reason = f"Pantry match: {pantry_map[key].name}"
+                matched_item = pantry_map[key]
             else:
                  # Fuzzy check
                 for p_name, p_item in pantry_map.items():
                     if p_name in key or key in p_name:
-                        in_pantry = True
-                        pantry_reason = f"Pantry match: {p_item.name}"
+                        matched_item = p_item
                         break
             
-            # Logic: 
-            # If status="have" (Pantry Match) AND NOT in_pantry -> "need"
-            # If status="need" AND in_pantry -> "have"
-            
-            # We only flip 'have' back to 'need' if the reason was automated.
-            # If user MANUALLY set it to 'have' (via UI toggle), we shouldn't flip it back just because pantry is empty.
-            # But the user specifically asked: "only mark have if there is a match in pantry_items right now"
-            # And "Delet[ing] pantry items... it's not reading pantry for that bucket"
-            # So let's implement the strict recompute.
-            
-            if in_pantry and item.status == "need":
-                item.status = "have"
-                item.reason = pantry_reason
-                changes += 1
-            elif not in_pantry and item.status == "have" and "Pantry match" in (item.reason or ""):
-                item.status = "need"
-                item.reason = "Missing from pantry (recompute)"
-                changes += 1
+            if matched_item:
+                # Logic: If status="need" AND in_pantry -> "have"
+                if item.status == "need":
+                    item.status = "have"
+                    item.reason = f"Pantry match: {matched_item.name}"
+                    changes += 1
+            else:
+                # Logic: If status="have" (Pantry Match) AND NOT in_pantry -> "need"
+                if item.status == "have" and "Pantry match" in (item.reason or ""):
+                    item.status = "need"
+                    item.reason = "Missing from pantry (recompute)"
+                    changes += 1
         
         if changes > 0:
             db.commit()
             db.refresh(grocery_list)
             
+        # Pass 2: Transient Attributes (Calculated after potential DB refresh)
+        for item in grocery_list.items:
+            key = item.name.lower()
+            matched_item = None
+             # Re-match (fast enough)
+            if key in pantry_map: matched_item = pantry_map[key]
+            else:
+                for p_name, p_item in pantry_map.items():
+                    if p_name in key or key in p_name:
+                        matched_item = p_item
+                        break
+            
+            if matched_item and matched_item.expires_on:
+                item.expiry_days = (matched_item.expires_on - today).days
+
     return grocery_list
 
 @router.patch("/items/{item_id}", response_model=schemas.GroceryListItemOut)
@@ -350,3 +360,19 @@ def sync_current_list_to_pantry(
         "skipped": len([i for i in grocery_list.items if i.status == "purchased"]) - synced_count,
         "total_purchased": len([i for i in grocery_list.items if i.status == "purchased"])
     }
+
+@router.delete("/current", status_code=204)
+def clear_current_list(
+    workspace: models.Workspace = Depends(get_workspace),
+    db: Session = Depends(get_db)
+):
+    """Delete the active grocery list for the workspace."""
+    grocery_list = db.query(models.GroceryList).filter(
+        models.GroceryList.workspace_id == workspace.id
+    ).order_by(models.GroceryList.created_at.desc()).first()
+    
+    if grocery_list:
+        db.delete(grocery_list)
+        db.commit()
+    
+    return

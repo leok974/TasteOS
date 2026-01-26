@@ -2,10 +2,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Plus, RefreshCw, ShoppingCart, Loader2, X, Undo } from "lucide-react";
+import { Check, Plus, RefreshCw, ShoppingCart, Loader2, X, Undo, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useCurrentGrocery, useGenerateGrocery, useUpdateGroceryItem, groceryKeys } from "@/features/grocery/hooks";
+import { useCurrentGrocery, useGenerateGrocery, useUpdateGroceryItem, groceryKeys, useClearGrocery } from "@/features/grocery/hooks";
 import { useRecipes } from "@/features/recipes/hooks";
 import { useCurrentPlan } from "@/features/plan/hooks";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +17,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/cn";
 
 import { useRecipe } from "@/features/recipes/hooks";
@@ -25,7 +36,9 @@ export default function GroceryPage() {
     const { data: groceryList, isLoading, isError, isRefetching } = useCurrentGrocery();
     const { plan } = useCurrentPlan();
     const { mutate: generate, isPending: isGenerating } = useGenerateGrocery();
+    const { mutate: clearList, isPending: isClearing } = useClearGrocery();
     const queryClient = useQueryClient();
+    const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
 
     const isStale = plan && groceryList && groceryList.source !== `plan:${plan.id}`;
 
@@ -107,6 +120,20 @@ export default function GroceryPage() {
                             </Button>
                         )}
                         
+                        {/* Clear / Start Over */}
+                        {groceryList && (
+                             <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Start Over (Delete List)"
+                                onClick={() => setIsClearDialogOpen(true)}
+                                disabled={isClearing || isGenerating}
+                                className="text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
+                        )}
+                        
                         {/* Standard Refresh (if no plan, or just purely refreshing data) */}
                         {groceryList && !plan && (
                             <Button variant="outline" size="sm" 
@@ -122,6 +149,29 @@ export default function GroceryPage() {
                         )}
                     </div>
                 </div>
+
+                <AlertDialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Start Over?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will delete your current grocery list. This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction 
+                                onClick={() => {
+                                    clearList();
+                                    setIsClearDialogOpen(false);
+                                }}
+                                className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                            >
+                                {isClearing ? "Deleting..." : "Delete List"}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
                 {!groceryList || isError ? (
                     <GenerateListSection />
@@ -481,8 +531,23 @@ function ActiveListSection({ list, onInclude, isGenerating }: { list: any, onInc
                                 onClick={() => toggleStatus(item)}
                                 className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded flex justify-between text-slate-500 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group"
                             >
-                                <span className={cn("truncate group-hover:text-slate-900 dark:group-hover:text-slate-200")}>{item.name}</span>
-                                <div className="flex items-center gap-2">
+                                <div className="flex-1 min-w-0 pr-2">
+                                     <span className={cn("truncate block group-hover:text-slate-900 dark:group-hover:text-slate-200")}>{item.name}</span>
+                                     {item.expiry_days !== undefined && item.expiry_days !== null && (
+                                         <span 
+                                            data-testid={`grocery-expiry-chip-${item.id}`}
+                                            className={cn(
+                                                "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium mt-1",
+                                                item.expiry_days <= 0 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
+                                                item.expiry_days <= 2 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" :
+                                                "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
+                                            )}
+                                         >
+                                            {item.expiry_days <= 0 ? "Expired" : `Expires in ${item.expiry_days} days`}
+                                         </span>
+                                     )}
+                                </div>
+                                <div className="flex items-center gap-2 self-start pt-0.5">
                                     <span className="text-xs">{item.reason?.replace('Pantry match: ', '')}</span>
                                     <Plus className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
                                 </div>

@@ -23,7 +23,8 @@ from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry
 from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate
 from ..settings import settings
 from ..services.events import log_event
-from sqlalchemy import desc
+from sqlalchemy import desc, select, func, text, or_
+from pydantic import BaseModel
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)

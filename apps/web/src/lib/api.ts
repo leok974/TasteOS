@@ -49,6 +49,17 @@ export interface Workspace {
   created_at: string;
 }
 
+export interface RecipeNoteEntry {
+    id: string;
+    recipe_id: string;
+    session_id: string | null;
+    source: string;
+    title: string;
+    content_md: string;
+    created_at: string;
+    tags?: string[];
+}
+
 export interface Recipe {
   id: string;
   workspace_id: string;
@@ -141,6 +152,20 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
     throw new Error(error.detail || `PATCH ${path} failed: ${res.status}`);
   }
   return res.json();
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `DELETE ${path} failed: ${res.status}`);
+  }
+  // Some DELETE endpoints return empty body
+  if (res.status === 204) return {} as T;
+  return res.json().catch(() => ({} as T));
 }
 
 // --- Recipe API ---

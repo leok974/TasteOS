@@ -46,6 +46,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
+import { RecipeNotesHistory } from '@/features/recipes/RecipeNotesHistory';
 import {
     useCookSessionActive,
     useCookSessionStart,
@@ -1015,9 +1016,17 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                     </div>
                 </div>
 
-                {recipe.notes && (
-                    <p className="mt-4 text-sm text-stone-600 leading-relaxed">{recipe.notes}</p>
-                )}
+                {/* Legacy Notes - Hidden if history exists */ }
+                {recipe.notes ? (
+                    <details className="mt-4">
+                        <summary className="text-xs font-bold uppercase tracking-widest text-stone-400 cursor-pointer hover:text-amber-600 transition-colors select-none">
+                            Show Legacy Notes Log
+                        </summary>
+                        <p className="mt-4 text-sm text-stone-600 leading-relaxed whitespace-pre-wrap pl-4 border-l-2 border-stone-100">{recipe.notes}</p>
+                    </details>
+                ) : null}
+
+                <RecipeNotesHistory recipeId={recipe.id} />
             </div>
         </div>
     );

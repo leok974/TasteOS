@@ -408,10 +408,10 @@ export function useCookSessionSummary(sessionId: string | undefined, enabled: bo
 
 export function useCookSummaryPolish() {
     return useMutation({
-        mutationFn: async ({ sessionId, style }: { sessionId: string, style: string }) => {
+        mutationFn: async ({ sessionId, style, freeform_note }: { sessionId: string, style: string, freeform_note?: string }) => {
             return cookFetch<any>(`/cook/session/${sessionId}/summary/polish`, {
                 method: "POST",
-                body: JSON.stringify({ style, include_timeline: false })
+                body: JSON.stringify({ style, include_timeline: false, freeform_note })
             });
         }
     });
@@ -419,28 +419,40 @@ export function useCookSummaryPolish() {
 
 export function useCookNotesPreview() {
     return useMutation({
-        mutationFn: async ({ sessionId, include, use_ai, style, freeform }: { 
+        mutationFn: async ({ sessionId, include, use_ai, style, freeform, polished_data }: { 
             sessionId: string; 
             include: any;
             use_ai?: boolean;
             style?: string;
             freeform?: string;
+            polished_data?: any;
         }) => {
             return cookFetch<any>(`/cook/session/${sessionId}/notes/preview`, {
                 method: "POST",
-                body: JSON.stringify({ include, use_ai, style, freeform })
+                body: JSON.stringify({ include, use_ai, style, freeform, polished_data })
             });
         }
     });
 }
 
 export function useCookNotesApply() {
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ sessionId, recipeId, notes }: { sessionId: string, recipeId: string, notes: string[] }) => {
+        mutationFn: async ({ sessionId, recipeId, notes, create_entry = true }: { sessionId: string, recipeId: string, notes: string[], create_entry?: boolean }) => {
              return cookFetch(`/cook/session/${sessionId}/notes/apply`, {
                 method: "POST",
-                body: JSON.stringify({ recipe_id: recipeId, notes_append: notes })
+                body: JSON.stringify({ 
+                    recipe_id: recipeId, 
+                    notes_append: notes,
+                    create_entry 
+                })
             });
+        },
+        onSuccess: (_data, { recipeId }) => {
+            // Invalidate recipe notes to refresh history UI
+             queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
+             // Also invalidate recipe details for legacy notes
+             queryClient.invalidateQueries({ queryKey: ['recipes', 'detail', recipeId] });
         }
     });
 }

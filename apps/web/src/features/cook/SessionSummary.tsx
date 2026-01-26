@@ -55,7 +55,7 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
 
     const generatePolish = (style: string) => {
         setAiStyle(style);
-        polishMutation.mutate({ sessionId, style }, {
+        polishMutation.mutate({ sessionId, style, freeform_note: freeformNote }, {
             onSuccess: (resp) => {
                 setPolishedData(resp.polished);
             },
@@ -67,11 +67,17 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
     }
 
     const handlePreview = () => {
+        // v10.X - Ensure polished data is passed down or used
         previewMutation.mutate({
             sessionId,
             use_ai: useAI,
             style: aiStyle,
             freeform: freeformNote,
+            polished_data: useAI ? polishedData : undefined,
+            // If we have polished data, we might want to hint to backend to use it or re-polish?
+            // Current backend logic re-polishes if use_ai is true. 
+            // Better to trust backend to re-generate consistency or pass token?
+            // For now, standard flow:
             include: {
                 method: includeMethod,
                 servings: includeServings,
@@ -91,11 +97,15 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
         applyMutation.mutate({
             sessionId,
             recipeId,
-            notes: preview.recipe_patch.notes_append
+            notes: preview.recipe_patch.notes_append,
+            // Add explicit flag to match schemas.py default
+            create_entry: true 
         }, {
             onSuccess: () => {
                 setViewMode('saved');
                 toast({ title: "Notes Saved", description: "Added to recipe notes successfully." });
+                // Force refresh of recipe notes history if parent didn't invalidate
+                // Ideally this happens via React Query invalidation in the hook
             }
         });
     };
@@ -202,12 +212,12 @@ export function SessionSummary({ sessionId, recipeId, onClose }: SessionSummaryP
                      {/* AI Toggle */}
                      <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
                          <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                         <label htmlFor="ai-polish" className="text-xs font-bold text-indigo-900 cursor-pointer">
+                         <label htmlFor="ai-polish" className="text-xs font-bold text-indigo-900 cursor-pointer select-none">
                              Polish with AI
                          </label>
                          <Checkbox 
                             id="ai-polish" 
-                            className="bg-white border-indigo-200 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 h-4 w-4"
+                            className="bg-white border-indigo-200 checked:bg-indigo-600 checked:border-indigo-600 h-4 w-4"
                             checked={useAI}
                             onChange={(e) => handleToggleAI(e.target.checked)}
                          />

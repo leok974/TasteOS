@@ -184,6 +184,19 @@ function CheckIcon(props: any) {
                                         {line.replace(/^-\s/, '')}
                                     </p>
                                 ))}
+                                
+                                {note.tags && note.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-stone-100/50">
+                                        {note.tags.map(tag => (
+                                            <span 
+                                                key={tag} 
+                                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-500 uppercase tracking-wide"
+                                            >
+                                                {tag.replace(/_/g, ' ')}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

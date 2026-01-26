@@ -331,6 +331,7 @@ class RecipeNoteEntryOut(BaseModel):
     source: str
     title: str
     content_md: str
+    tags: list[str] = []
     applied_to_recipe_notes: bool
     
     class Config:
@@ -340,6 +341,7 @@ class RecipeNoteEntryCreate(BaseModel):
     source: str
     title: str
     content_md: str
+    tags: list[str] = []
     session_id: Optional[str] = None
     apply_to_recipe_notes: bool = True
 

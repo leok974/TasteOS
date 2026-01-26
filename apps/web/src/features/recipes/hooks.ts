@@ -18,6 +18,9 @@ import {
     type PortableRecipe,
     type ImportResult,
     apiPost,
+    apiGet,
+    apiDelete,
+    type RecipeNoteEntry
 } from '@/lib/api';
 import { useWorkspace } from '../workspaces/WorkspaceProvider';
 
@@ -226,6 +229,73 @@ export function useAnalyzeMacros(options?: { onSuccess?: (data: any) => void }) 
         mutationFn: (recipeId: string) =>
             apiPost<{ summary: string; calories: string }>('/ai/macros', { recipe_id: recipeId }),
         onSuccess: options?.onSuccess,
+    });
+}
+
+
+// --- Note History ---
+
+export function useRecipeNotes(recipeId: string) {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ['recipe-notes', recipeId, { workspaceId }],
+        queryFn: () => apiGet<RecipeNoteEntry[]>(`/recipes/${recipeId}/notes`),
+        enabled: !!recipeId,
+    });
+}
+
+// v11: Search & Tags
+export function useRecipeNotesSearch(recipeId: string, q: string, tags: string[]) {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ['recipe-notes', recipeId, { q, tags, workspaceId }],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (q) params.set('q', q);
+            tags.forEach(t => params.append('tags', t));
+            
+            // Re-use apiGet? It wraps fetch. Need to append query params.
+            // Assuming apiGet handles full URL or we construct it.
+            // apiGet typically takes path.
+            const queryString = params.toString();
+            const url = `/recipes/${recipeId}/notes/search?${queryString}`;
+            
+            return apiGet<{ items: RecipeNoteEntry[], next_cursor?: string }>(url);
+        },
+        enabled: !!recipeId,
+    });
+}
+
+export function useRecipeNoteTags(recipeId: string) {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ['recipe-notes-tags', recipeId, { workspaceId }],
+        queryFn: () => apiGet<{ tags: Array<{ tag: string, count: number }> }>(`/recipes/${recipeId}/notes/tags`),
+        enabled: !!recipeId,
+    });
+}
+
+export function useDeleteRecipeNote() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, noteId }: { recipeId: string; noteId: string }) =>
+            apiDelete(`/recipes/${recipeId}/notes/${noteId}`),
+        onSuccess: (_, { recipeId }) => {
+            queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
+            queryClient.invalidateQueries({ queryKey: ['recipe-notes-tags', recipeId] });
+        },
+    });
+}
+
+export function useRestoreRecipeNote() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, noteId }: { recipeId: string; noteId: string }) =>
+            apiPost<RecipeNoteEntry>(`/recipes/${recipeId}/notes/${noteId}/restore`, {}),
+        onSuccess: (_data, { recipeId }) => {
+             queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
+             queryClient.invalidateQueries({ queryKey: ['recipe-notes-tags', recipeId] });
+        }
     });
 }
 

@@ -1461,6 +1461,36 @@ def apply_session_notes(
         ).first()
         
         if not existing_entry:
+            # v11: Derive tags!
+            tags = []
+            session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+            if session:
+                if session.method_key:
+                    tags.append(session.method_key)
+                
+                # Scan adjustments for tags (e.g. "too_thick", "too_salty")
+                known_adjust_tags = [
+                    "too_thick", "too_thin", "too_salty", "too_spicy", 
+                    "burning", "no_browning", "undercooked", "overcooked", 
+                    "bland", "dry", "wet"
+                ]
+                
+                # Check adjustments log
+                if session.adjustments_log:
+                    for adj in session.adjustments_log:
+                        # adj is a dict, usually has 'fix_summary' or similar
+                        text = str(adj).lower()
+                        for t in known_adjust_tags:
+                            if t in text and t not in tags:
+                                tags.append(t)
+                                
+            # Fallback/Supplemental: scan content_md
+            content_lower = content_md.lower()
+            known_method_tags = ["air_fryer", "instant_pot", "wok", "dutch_oven", "cast_iron", "steamer", "sous_vide", "slow_cooker"]
+            for t in known_method_tags:
+                if t.replace("_", " ") in content_lower and t not in tags:
+                    tags.append(t)
+            
             entry = RecipeNoteEntry(
                 workspace_id=recipe.workspace_id,
                 recipe_id=recipe.id,
@@ -1468,6 +1498,7 @@ def apply_session_notes(
                 source="cook_session",
                 title=title,
                 content_md=content_md,
+                tags=tags,
                 applied_to_recipe_notes=True 
             )
             db.add(entry)

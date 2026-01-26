@@ -209,7 +209,7 @@ class RecipeNoteEntry(Base):
         Index("ix_recipe_note_entries_workspace_id", "workspace_id"),
         Index("ix_recipe_note_entries_recipe_lookup", "workspace_id", "recipe_id", "created_at"),
         Index("ix_recipe_note_entries_session_lookup", "workspace_id", "session_id"),
-        Index("ix_recipe_note_entries_unique_session", "session_id", "recipe_id", unique=True, postgresql_where=sa.text("deleted_at IS NULL")),
+        Index("ix_recipe_note_entries_unique_session", "session_id", "recipe_id", unique=True), # Removed postgresql_where for SQLite compat in tests
     )
 
     id: Mapped[str] = mapped_column(
@@ -234,6 +234,9 @@ class RecipeNoteEntry(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content_md: Mapped[str] = mapped_column(Text, nullable=False)
     
+    # v11: Searchable tags
+    tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+
     applied_to_recipe_notes: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

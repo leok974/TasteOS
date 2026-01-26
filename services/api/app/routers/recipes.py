@@ -10,6 +10,7 @@ Endpoints:
 import uuid
 import logging
 from typing import Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from slowapi import Limiter
@@ -713,6 +714,102 @@ def list_recipe_notes(
     ).order_by(desc(RecipeNoteEntry.created_at)).limit(limit).all()
     
     return entries
+
+
+class NotesSearchResponse(BaseModel):
+    items: list[RecipeNoteEntryOut]
+    next_cursor: Optional[str] = None
+
+@router.get("/recipes/{recipe_id}/notes/search", response_model=NotesSearchResponse)
+def search_recipe_notes(
+    recipe_id: str,
+    q: Optional[str] = None,
+    tags: list[str] = Query(default=[]),
+    source: Optional[str] = None,
+    since: Optional[datetime] = None,
+    limit: int = Query(25, ge=1, le=100),
+    cursor: Optional[int] = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Search and filter recipe notes."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+        
+    query = db.query(RecipeNoteEntry).filter(
+        RecipeNoteEntry.recipe_id == recipe_id,
+        RecipeNoteEntry.workspace_id == workspace.id,
+        RecipeNoteEntry.deleted_at.is_(None)
+    )
+    
+    # Text Search (Simple ILIKE for v11)
+    if q:
+        search_term = f"%{q}%"
+        query = query.filter(
+            or_(
+                RecipeNoteEntry.title.ilike(search_term),
+                RecipeNoteEntry.content_md.ilike(search_term)
+            )
+        )
+    
+    # Filter by Tags (AND logic)
+    if tags:
+        query = query.filter(RecipeNoteEntry.tags.contains(tags))
+        
+    # Filter by Source
+    if source:
+        query = query.filter(RecipeNoteEntry.source == source)
+        
+    # Date Range
+    if since:
+        query = query.filter(RecipeNoteEntry.created_at >= since)
+        
+    # Pagination & Ordering
+    total = query.count()
+    items = query.order_by(desc(RecipeNoteEntry.created_at)).offset(cursor).limit(limit).all()
+    
+    next_cursor = str(cursor + limit) if (cursor + limit) < total else None
+    
+    return {
+        "items": items,
+        "next_cursor": next_cursor
+    }
+
+
+class TagCount(BaseModel):
+    tag: str
+    count: int
+
+class NotesTagsResponse(BaseModel):
+    tags: list[TagCount]
+
+@router.get("/recipes/{recipe_id}/notes/tags", response_model=NotesTagsResponse)
+def get_recipe_note_tags(
+    recipe_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Aggregate tags used in notes for this recipe."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+        
+    # Postgres specific array aggregation
+    # select unnest(tags) as tag, count(*) as count from recipe_note_entries ... group by tag
+    stmt = (
+        select(func.unnest(RecipeNoteEntry.tags).label("tag"), func.count().label("count"))
+        .where(
+            RecipeNoteEntry.recipe_id == recipe_id,
+            RecipeNoteEntry.workspace_id == workspace.id,
+            RecipeNoteEntry.deleted_at.is_(None)
+        )
+        .group_by("tag")
+        .order_by(text("count DESC"))
+    )
+    
+    results = db.execute(stmt).all()
+    return {"tags": [{"tag": r.tag, "count": r.count} for r in results]}
 
 
 @router.post("/recipes/{recipe_id}/notes", response_model=RecipeNoteEntryOut)

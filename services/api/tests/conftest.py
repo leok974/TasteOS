@@ -99,3 +99,24 @@ def workspace(db_session):
     db_session.commit()
     db_session.refresh(ws)
     return ws
+
+import fakeredis
+import fakeredis.aioredis
+from app.infra import redis_client
+
+@pytest.fixture(autouse=True)
+def mock_redis(monkeypatch):
+    server = fakeredis.FakeServer()
+    # Create fake clients sharing the same server
+    async_redis = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    sync_redis = fakeredis.FakeRedis(server=server, decode_responses=True)
+    
+    # Force the clients into the infra module
+    redis_client._redis_async = async_redis
+    redis_client._redis_sync = sync_redis
+    
+    yield
+    
+    # Cleanup
+    redis_client._redis_async = None
+    redis_client._redis_sync = None

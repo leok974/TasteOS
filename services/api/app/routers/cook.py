@@ -25,7 +25,10 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from pydantic import BaseModel, Field
 
-from ..db import get_db
+from app.realtime.cook_bus import publish_session_updated_sync, subscribe_session
+from app.infra.redis_cache import get_or_set_json_sync
+
+from ..db import get_db, SessionLocal
 from ..deps import get_workspace
 from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry
 from ..services.ai_service import ai_service
@@ -49,28 +52,15 @@ limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("tasteos.cook")
 
 # --- SSE PubSub ---
-# session_id -> list of queues
-_session_listeners: dict[str, list[queue.Queue]] = defaultdict(list)
 
 def notify_session_update(session: CookSession):
     """Publish session update to all active listeners."""
     try:
-        data = session_to_response(session).model_dump(mode='json')
-        msg = f"event: session\ndata: {json.dumps(data)}\n\n"
-        
-        listeners = _session_listeners.get(session.id, [])
-        dead_queues = []
-        for q in listeners:
-            try:
-                q.put_nowait(msg)
-            except queue.Full:
-                dead_queues.append(q)
-        
-        # Cleanup full/dead queues
-        for dq in dead_queues:
-            if dq in listeners:
-                listeners.remove(dq)
-                
+        publish_session_updated_sync(
+            session_id=str(session.id), 
+            workspace_id=str(session.workspace_id), 
+            updated_at_iso=session.updated_at.isoformat()
+        )
     except Exception as e:
         logger.error(f"Failed to publish session update: {e}")
 
@@ -620,46 +610,56 @@ async def session_events(
     session_id: str,
     # db: Session = Depends(get_db), # NOTE: Standard validation skipped for stream performance unless strict is needed
 ):
-    """Server-Sent Events for session updates."""
+    """Server-Sent Events for session updates via Redis Pub/Sub."""
     
     async def event_generator():
-        q = queue.Queue(maxsize=20)
-        _session_listeners[session_id].append(q)
+        pubsub = await subscribe_session(session_id)
+        last_ping = asyncio.get_running_loop().time()
+
         try:
             while True:
                 # Check for client disconnect
                 if await request.is_disconnected():
                     break
 
+                # Check Redis message (timeout 1s to allow periodic ping check)
                 try:
-                    # Non-blocking get with loop yielding
-                    # We run q.get in executor if we want strict non-blocking, but q.get_nowait + sleep is often simpler for low throughput
-                    # Better: await loop.run_in_executor
-                    loop = asyncio.get_running_loop()
-                    try:
-                         # Wait for event with timeout for keepalive
-                        data = await asyncio.wait_for(
-                             loop.run_in_executor(None, q.get, True, 5), # timeout 5s within executor? No, q.get(block=True, timeout=5)
-                             timeout=15 
-                        )
-                        yield data
-                    except asyncio.TimeoutError:
-                         # Keepalive
-                         yield "event: ping\ndata: {}\n\n"
-                    except queue.Empty:
-                         yield "event: ping\ndata: {}\n\n"
-                         
+                    msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    if msg:
+                        # Message received (payload is just metadata, we fetch full state from DB)
+                        # data = json.loads(msg["data"]) 
+                        # We ignore payload content and fetch fresh state to ensure consistency
+                        loop = asyncio.get_running_loop()
+                        session_json = await loop.run_in_executor(None, _fetch_session_state, session_id)
+                        
+                        if session_json:
+                             yield f"event: session\ndata: {json.dumps(session_json)}\n\n"
                 except Exception as e:
-                    # logger.error(f"SSE Error: {e}")
-                    yield "event: ping\ndata: {}\n\n"
-                    await asyncio.sleep(5) # Avoid tight loop on error
-                    
+                    logger.error(f"Redis PubSub Error: {e}")
+                    await asyncio.sleep(1)
+
+                # Keepalive Ping
+                now = asyncio.get_running_loop().time()
+                if now - last_ping > 15:
+                     yield "event: ping\ndata: {}\n\n"
+                     last_ping = now
+                     
         finally:
-            if q in _session_listeners[session_id]:
-                _session_listeners[session_id].remove(q)
-            # logger.info(f"SSE client disconnected for {session_id}")
+            await pubsub.unsubscribe()
+            await pubsub.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+def _fetch_session_state(session_id: str):
+    """Helper to fetch session state in sync thread."""
+    db = SessionLocal()()
+    try:
+        session = db.scalar(select(CookSession).where(CookSession.id == session_id))
+        if session:
+            return session_to_response(session).model_dump(mode='json')
+        return None
+    finally:
+        db.close()
 
 
 
@@ -1334,25 +1334,33 @@ def polish_session_summary(
     
     facts = _build_session_facts(session, recipe, events, freeform=body.freeform_note)
     
-    # Call Gemini
-    polished = polish_summary(facts, style=body.style, max_bullets=body.max_bullets)
-    
-    # Log usage
-    log_event(
-        db, 
-        workspace_id=workspace.id, 
-        session_id=session.id, 
-        type="summary_polish", 
-        meta={"model": "gemini-2.0-flash-exp", "ok": polished.confidence > 0.5}
-    )
-    db.commit()
-
     inputs_hash = hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()
     
+    # Redis Cache (v12)
+    cache_key = f"tasteos:ai:polish:{workspace.id}:{session_id}:{inputs_hash}"
+    
+    def compute_polish():
+        # Call Gemini
+        p = polish_summary(facts, style=body.style, max_bullets=body.max_bullets)
+        
+        # Log usage
+        log_event(
+            db, 
+            workspace_id=workspace.id, 
+            session_id=session.id, 
+            type="summary_polish", 
+            meta={"model": "gemini-2.0-flash-exp", "ok": p.confidence > 0.5}
+        )
+        db.commit()
+        return p.model_dump(mode='json')
+
+    result_json, hit = get_or_set_json_sync(cache_key, 24 * 3600, compute_polish)
+    polished = PolishedSummary(**result_json)
+
     return SummaryPolishResponse(
         polished=polished,
         raw_inputs_hash=inputs_hash,
-        model="gemini-2.0-flash-exp"
+        model=f"gemini-2.0-flash-exp{' (cached)' if hit else ''}"
     )
 
 

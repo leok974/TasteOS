@@ -1103,11 +1103,8 @@ async def apply_adjustment(
     except Exception:
         await idempotency_clear_key(redis_key)
         raise
-    now = datetime.now(timezone.utc)
-    session.last_interaction_at = now
-    if "step_index" in log_entry:
-         session.last_interaction_step_index = log_entry["step_index"]
-    
+
+@router.post("/session/{session_id}/adjust/undo", response_model=SessionResponse)
 async def undo_adjustment(
     session_id: str,
     request: Request,

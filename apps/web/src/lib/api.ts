@@ -290,6 +290,54 @@ export interface PantryItem {
   updated_at: string;
 }
 
+// --- Autofill API ---
+
+export interface AutofillProposal {
+    proposal_id: string;
+    plan_entry_id: string;
+    date: string;
+    meal: string;
+    before?: {
+        recipe_id: string;
+        title: string;
+        time_minutes?: number;
+    };
+    after: {
+        recipe_id: string;
+        title: string;
+        time_minutes?: number;
+    };
+    score: number;
+    reasons: Array<{ kind: string; value: string | number }>;
+}
+
+export interface AutofillResponse {
+    week_start: string;
+    meta: {
+        use_soon_items: Array<{ name: string; expires_in_days: number }>;
+    };
+    proposals: AutofillProposal[];
+}
+
+export async function generateAutofillProposals(weekStart: string, options?: { strictVariety?: boolean }): Promise<AutofillResponse> {
+    return apiPost<AutofillResponse>(`/autofill/use-soon?week_start=${weekStart}`, {
+        days: 5,
+        max_swaps: 4,
+        slots: ["dinner"],
+        prefer_quick: true,
+        strict_variety: options?.strictVariety ?? false
+    });
+}
+
+export async function applyAutofillProposals(weekStart: string, changes: Array<{ plan_entry_id: string; recipe_id: string }>): Promise<{ applied: number }> {
+    return apiPost<{ applied: number }>("/autofill/use-soon/apply", {
+        week_start: weekStart,
+        changes
+    }, { idempotent: true });
+}
+
+// --- Pantry API ---
+
 export type CreatePantryItem = Omit<PantryItem, "id" | "workspace_id" | "created_at" | "updated_at">;
 export type UpdatePantryItem = Partial<CreatePantryItem>;
 

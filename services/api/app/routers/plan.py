@@ -1,7 +1,7 @@
 
 from datetime import date, timedelta, datetime
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional, List, Any, Dict
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -9,6 +9,7 @@ from ..db import get_db
 from ..models import MealPlan, MealPlanEntry, Recipe, Workspace
 from ..agents.planner_agent import generate_week_plan
 from ..deps import get_workspace
+from ..services.autofill import generate_use_soon_proposals, apply_proposals
 
 router = APIRouter()
 
@@ -47,8 +48,101 @@ class EntryUpdate(BaseModel):
     force_cook: Optional[bool] = None
     method_choice: Optional[str] = None
 
+# --- Autofill Schemas ---
+
+class AutofillRequest(BaseModel):
+    days: int = 5
+    max_swaps: int = 3
+    slots: List[str] = ["dinner"]
+    ignore_entry_ids: List[str] = []
+    prefer_quick: bool = True
+    strict_variety: bool = False # If True, disallow any duplicates in the week
+    max_duplicates_per_recipe: int = 2
+
+class AutofillProposal(BaseModel):
+    proposal_id: str
+    plan_entry_id: str
+    date: date
+    meal: str
+    before: Optional[Dict[str, Any]]
+    after: Dict[str, Any]
+    score: float
+    reasons: List[Dict[str, Any]]
+    constraints: Dict[str, bool]
+
+class AutofillResponse(BaseModel):
+    week_start: date
+    meta: Dict[str, Any]
+    proposals: List[AutofillProposal]
+
+class ApplyChange(BaseModel):
+    plan_entry_id: str
+    recipe_id: str
+
+class ApplyRequest(BaseModel):
+    week_start: date
+    changes: List[ApplyChange]
+
+class ApplyResponse(BaseModel):
+    applied: int
+    plan: MealPlanOut
+    meta: Dict[str, Any]
 
 # --- Endpoints ---
+
+@router.post("/autofill/use-soon", response_model=AutofillResponse)
+def get_autofill_proposals(
+    request: AutofillRequest, # Optional body
+    week_start: date = Query(..., description="Start date of the week (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    """Generate proposals to swap existing plan entries with use-soon items."""
+    result = generate_use_soon_proposals(
+        db,
+        workspace.id,
+        week_start,
+        days=request.days,
+        max_swaps=request.max_swaps,
+        ignore_entry_ids=request.ignore_entry_ids,
+        slots=request.slots,
+        prefer_quick=request.prefer_quick,
+        strict_variety=request.strict_variety,
+        max_duplicates_per_recipe=request.max_duplicates_per_recipe
+    )
+    return result
+
+@router.post("/autofill/use-soon/apply", response_model=ApplyResponse)
+def apply_autofill_proposals(
+    request: ApplyRequest,
+    idempotency_key: str = Header(None, alias="Idempotency-Key"), 
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    """Apply approved proposals to the plan."""
+    # TODO: Implement actual idempotency with Redis using idempotency_key
+    # For MVP, we just proceed.
+    
+    # 1. Apply changes
+    changes_list = [{"plan_entry_id": c.plan_entry_id, "recipe_id": c.recipe_id} for c in request.changes]
+    count = apply_proposals(db, workspace.id, changes_list)
+    
+    # 2. Re-fetch plan
+    plan = db.query(MealPlan).filter(
+        MealPlan.workspace_id == workspace.id,
+        MealPlan.week_start == request.week_start
+    ).first()
+    
+    if not plan:
+        # Should imply plan created? If not found after apply, something oddly wrong
+        raise HTTPException(status_code=404, detail="Plan not found after update")
+
+    return {
+        "applied": count,
+        "plan": enrich_plan_response(plan, db),
+        "meta": {"idempotent_replay": False}
+    }
+
 
 @router.post("/plan/generate", response_model=MealPlanOut)
 def generate_plan(

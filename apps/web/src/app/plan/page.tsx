@@ -4,6 +4,7 @@
 import { useCurrentPlan, useGeneratePlan } from '@/features/plan/hooks';
 import { PlanGrid } from '@/features/plan/PlanGrid';
 import { InsightsCard } from '@/features/insights/InsightsCard';
+import { UseSoonAutofillCard } from "@/features/plan/UseSoonAutofillCard";
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -26,9 +27,6 @@ export default function PlanPage() {
     const { plan, isLoading, isEmpty } = useCurrentPlan();
     const { generate, isGenerating } = useGeneratePlan();
     const [showBoostBanner, setShowBoostBanner] = useState(true);
-    
-    // Debugging visibility
-    console.log("PlanPage Render:", { hasPlan: !!plan, isEmpty, isLoading });
 
     const handleGenerate = () => {
         // Determine next Monday or current week's Monday
@@ -43,7 +41,7 @@ export default function PlanPage() {
     return (
         <div className="container py-8 max-w-7xl mx-auto space-y-8">
             {/* Version Marker to confirm HMR */}
-            <div className="hidden">v2.2</div>
+            <div className="hidden">v3.2.2</div>
 
             {plan?.meta?.boost_applied && showBoostBanner && (
                 <div 
@@ -78,13 +76,12 @@ export default function PlanPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Weekly Plan</h1>
                     <p className="text-muted-foreground mt-1">
-                        Automated meal schedule optimized for variety and leftovers.
+                         {plan ? `Week of ${format(new Date(plan.week_start), 'MMMM d, yyyy')}` : 'Plan your meals'}
                     </p>
                 </div>
-
                 {(!plan || isEmpty) ? (
-                    <Button onClick={handleGenerate} disabled={isGenerating}>
-                        {isGenerating ? "Cooking..." : "Generate New Plan"}
+                     <Button onClick={handleGenerate} disabled={isGenerating}>
+                        {isGenerating ? "Generating..." : "Generate Plan"}
                     </Button>
                 ) : (
                     <AlertDialog>
@@ -109,7 +106,11 @@ export default function PlanPage() {
                 )}
             </div>
 
-            <InsightsCard scope="workspace" windowDays={30} className="w-full" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {/* Only show UseSoonAutofillCard if plan exists (meaning user has a structure to fill) */}
+                 {plan && <UseSoonAutofillCard weekStart={plan.week_start} />}
+                 <InsightsCard scope="workspace" windowDays={30} className="w-full" />
+            </div>
 
             {isLoading ? (
                 <PlanSkeleton />

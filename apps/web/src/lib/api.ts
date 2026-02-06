@@ -466,6 +466,14 @@ export interface CookTimer {
   deleted_at?: string | null;
 }
 
+export interface TimerSuggestion {
+  client_id: string;
+  label: string;
+  step_index: number;
+  duration_s: number;
+  reason: string;
+}
+
 export interface CookSession {
   id: string;
   recipe_id: string;
@@ -539,6 +547,24 @@ export async function resetCookMethod(sessionId: string): Promise<CookSession> {
 
 export async function apiPatchSession(sessionId: string, patch: any): Promise<CookSession> {
   return apiPatch<CookSession>(`/cook/session/${sessionId}`, patch);
+}
+
+// --- Cook Assist: Smart Timers ---
+
+export async function getTimerSuggestions(sessionId: string): Promise<{ suggested: TimerSuggestion[] }> {
+  return apiGet<{ suggested: TimerSuggestion[] }>(`/cook/session/${sessionId}/timers/suggested`);
+}
+
+export async function createTimersFromSuggestions(
+  sessionId: string, 
+  clientIds: string[], 
+  autostart: boolean = true
+): Promise<{ created: number; timers: Record<string, CookTimer> }> {
+  return apiPost<{ created: number; timers: Record<string, CookTimer> }>(
+    `/cook/session/${sessionId}/timers/from-suggested`,
+    { client_ids: clientIds, autostart },
+    { idempotent: true }
+  );
 }
 
 // --- Cook Adjust Types ---

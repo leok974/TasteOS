@@ -43,10 +43,12 @@ import {
     useCookSessionEvents,
     useCookAdjustmentUndo,
     CookSession,
+    CookTimer,
 } from '@/features/cook/hooks';
 import { MethodSwitcher } from '@/features/cook/MethodSwitcher';
 import { AdjustButtons } from '@/features/cook/AdjustButtons';
 import { WhyPanel } from '@/features/cook/components/WhyPanel';
+import { TimerSuggestions } from '@/features/cook/components/TimerSuggestions';
 import { SessionSummary } from '@/features/cook/SessionSummary';
 import { ResumeBanner } from '@/features/cook/components/ResumeBanner';
 import { TimerDock } from '@/features/cook/components/TimerDock';
@@ -217,6 +219,7 @@ function CookTimelineItem({
     onToggle,
     onTimerCreate,
     sessionId,
+    activeTimers,
 }: {
     step: CookStep;
     index: number;
@@ -228,6 +231,7 @@ function CookTimelineItem({
     onToggle: (key: string) => void;
     onTimerCreate?: (label: string, durationSec: number) => void;
     sessionId?: string | null;
+    activeTimers?: Record<string, CookTimer>;
 }) {
     const itemRef = useRef<HTMLDivElement>(null);
 
@@ -273,6 +277,13 @@ function CookTimelineItem({
 
                 {isActive && sessionId && (
                     <div className="fade-in zoom-in slide-in-from-top-1 animate-in duration-300">
+                        {activeTimers && (
+                            <TimerSuggestions 
+                                sessionId={sessionId} 
+                                stepIndex={index} 
+                                activeTimers={activeTimers} 
+                            />
+                        )}
                         <AdjustButtons sessionId={sessionId} stepIndex={index} />
                     </div>
                 )}
@@ -852,6 +863,7 @@ export function CookModeOverlay({
                                             onToggle={onToggle}
                                             onTimerCreate={onTimerCreate}
                                             sessionId={session?.id}
+                                            activeTimers={session?.timers}
                                         />
                                     );
                                 })}

@@ -138,6 +138,7 @@ export function useCookSessionPatch() {
             sessionId: string;
             patch: {
                 current_step_index?: number;
+                mark_step_complete?: number;
                 step_checks_patch?: {
                     step_index: number;
                     bullet_index: number;
@@ -166,7 +167,7 @@ export function useCookSessionPatch() {
                 body: JSON.stringify(patch),
             });
         },
-        onSuccess: (data) => {
+        onSuccess: (data, variables) => {
             // Update cache
             queryClient.setQueryData(
                 ["cook-session", "active", data.recipe_id],
@@ -174,9 +175,15 @@ export function useCookSessionPatch() {
             );
             // Invalidate history
             queryClient.invalidateQueries({ queryKey: ["session", data.id, "history"] });
+            queryClient.invalidateQueries({ queryKey: ["cook-next"] });
+            
+            if (variables.patch.mark_step_complete !== undefined) {
+                 queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+            }
         },
         onError: (error) => {
             console.error("[CookSessionPatch] Mutation failed:", error);
+            toast.error("Update failed: " + (error instanceof Error ? error.message : "Unknown error"));
         }
     });
 }
@@ -216,6 +223,8 @@ export function useCookSessionEnd() {
 }
 
 // Hook: AI cooking assistance
+import { toast } from 'sonner';
+
 export function useCookAssist() {
     return useMutation({
         mutationFn: async (request: {
@@ -231,6 +240,10 @@ export function useCookAssist() {
                 body: JSON.stringify(request),
             });
         },
+        onError: (err) => {
+             console.error("[CookAssist] Failed:", err);
+             toast.error("Assistant failed: " + (err instanceof Error ? err.message : "Unknown error"));
+        }
     });
 }
 
@@ -518,5 +531,47 @@ export function useCookNext(sessionId: string | null) {
         queryFn: () => sessionId ? fetchCookNext(sessionId) : Promise.reject("No session"),
         enabled: !!sessionId,
         refetchOnWindowFocus: true
+    });
+}
+
+// --- Cook Assist v13.2 Smart Step Timers ---
+
+export interface TimerSuggestion {
+    client_id: string;
+    label: string;
+    step_index: number;
+    duration_s: number;
+    reason: string; // 'minutes_est' | 'text_regex'
+}
+
+export function useTimerSuggestions(sessionId: string | null) {
+    return useQuery({
+        queryKey: ["cook-session", sessionId, "timer-suggestions"],
+        queryFn: async () => {
+            if (!sessionId) throw new Error("No session");
+            const res = await cookFetch<{ suggested: TimerSuggestion[] }>(`/cook/session/${sessionId}/timers/suggested`);
+            return res.suggested;
+        },
+        enabled: !!sessionId,
+        staleTime: 1000 * 60 * 5, // Suggestions unlikely to change during session
+    });
+}
+
+export function useTimerCreateFromSuggestions() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ sessionId, clientIds }: { sessionId: string; clientIds: string[] }) => {
+            return cookFetch(`/cook/session/${sessionId}/timers/from-suggested`, {
+                method: "POST",
+                body: JSON.stringify({ client_ids: clientIds, autostart: true }),
+                headers: {
+                    "Idempotency-Key": newIdemKey()
+                }
+            });
+        },
+        onSuccess: (_data, { sessionId }) => {
+            // Refresh session to show new timers
+            queryClient.invalidateQueries({ queryKey: ["cook-session", sessionId] });
+        }
     });
 }

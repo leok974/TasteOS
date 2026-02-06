@@ -52,27 +52,13 @@ export function NextUpPanel({ session, recipe, className }: NextUpPanelProps) {
         }
         else if (action.type === 'mark_step_done') {
             if (typeof action.step_idx === 'number') {
-                const step = recipe.steps.find((s: any) => s.step_index === action.step_idx);
-                if (step && step.bullets) {
-                    step.bullets.forEach((_: any, idx: number) => {
-                        // Check if already checked? 
-                        // The heuristics say if incomplete, so at least one is unchecked.
-                        // We set all to checked.
-                        const isChecked = session.step_checks[String(action.step_idx)]?.[String(idx)];
-                        if (!isChecked) {
-                            patchSession({
-                                sessionId: session.id,
-                                patch: {
-                                    step_checks_patch: {
-                                        step_index: action.step_idx!,
-                                        bullet_index: idx,
-                                        checked: true
-                                    }
-                                }
-                            });
-                        }
-                    });
-                }
+                // v13.3: Use atomic server-side completion if possible
+                patchSession({
+                    sessionId: session.id,
+                    patch: {
+                        mark_step_complete: action.step_idx
+                    }
+                });
             }
         }
         else if (action.type === 'complete_session') {

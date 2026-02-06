@@ -31,7 +31,7 @@ from app.infra.idempotency import idempotency_precheck, idempotency_store_result
 
 from ..db import get_db, SessionLocal
 from ..deps import get_workspace
-from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry, MealPlanEntry, MealPlan
+from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry, MealPlanEntry, MealPlan, Leftover, PantryItem, PantryTransaction, CookSessionEvent
 from ..services.ai_service import ai_service
 from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
@@ -48,10 +48,13 @@ from ..schemas import (
     AdjustUndoRequest, CookSessionEventOut,
     SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest,
     SummaryPolishRequest, SummaryPolishResponse, PolishedSummary,
+    CookCompleteRequest, CookCompleteResponse, CookRecap,
     PantryDecrementPreviewResponse, PantryDecrementApplyRequest,
     TimerResponse, TimerCreateRequest, TimerActionRequest, TimerPatchRequest,
-    CookNextResponse, CookNextAction
+    CookNextResponse, CookNextAction,
+    TimerSuggestion, TimerSuggestionResponse, TimerFromSuggestedRequest
 )
+from ..parsing.timers import generate_suggestions_for_step
 
 router = APIRouter(prefix="/cook", tags=["cook"])
 limiter = Limiter(key_func=get_remote_address)
@@ -298,6 +301,30 @@ def patch_session(
         
         interaction_occurred = True
         interaction_step_index = p.get('step_index')
+
+    if patch.mark_step_complete is not None:
+        idx = patch.mark_step_complete
+        step_key = str(idx)
+        
+        # Load recipe to find bullet count
+        # Optimization: Reuse recipe if loaded?
+        recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+        if recipe and recipe.steps:
+             target_step = next((s for s in recipe.steps if s.step_index == idx), None)
+             if target_step and target_step.bullets:
+                 if step_key not in session.step_checks:
+                     session.step_checks[step_key] = {}
+                 
+                 for i in range(len(target_step.bullets)):
+                     session.step_checks[step_key][str(i)] = True
+                 
+                 from sqlalchemy.orm.attributes import flag_modified
+                 flag_modified(session, "step_checks")
+                 
+                 log_event(db, workspace_id=workspace.id, session_id=session_id, type="step_complete_all", meta={"step": idx})
+        
+        interaction_occurred = True
+        interaction_step_index = idx
     
     if patch.timer_create:
         t = patch.timer_create
@@ -509,6 +536,183 @@ def end_session(
     notify_session_update(session)
     logger.info(f"Session {session_id} marked as {session.status}")
     return session_to_response(session)
+
+
+@router.post("/session/{session_id}/complete", response_model=CookCompleteResponse)
+async def complete_session_v2(
+    session_id: str,
+    payload: CookCompleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Complete a cook session, save recap note, and optionally creating leftovers."""
+    
+    # Idempotency Precheck
+    idem_key = request.headers.get("Idempotency-Key")
+    pre = None
+    if idem_key:
+        pre = await idempotency_precheck(request, workspace_id=workspace.id, route_key=f"complete_{session_id}")
+        if isinstance(pre, JSONResponse):
+             return pre
+
+    session = db.scalar(
+        select(CookSession).where(
+            CookSession.id == session_id,
+            CookSession.workspace_id == workspace.id
+        )
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Double check internal idempotency if DB already has it
+    if session.completed_at and session.recap_json and idem_key:
+         note = db.scalar(select(RecipeNoteEntry).where(
+            RecipeNoteEntry.session_id == session.id,
+            RecipeNoteEntry.workspace_id == workspace.id,
+            RecipeNoteEntry.title == "Cook Recap"
+        ))
+         return CookCompleteResponse(
+            session_id=session.id,
+            completed_at=session.completed_at,
+            recap=CookRecap(**session.recap_json),
+            note_entry_id=note.id if note else None,
+            leftover_id=None
+        )
+
+    # 1. Build Recap
+    step_checks = session.step_checks or {}
+    checked_steps = sum(1 for v in step_checks.values() if v)
+    
+    timers_recap = []
+    timers = session.timers or {}
+    for t_id, t_data in sorted(timers.items(), key=lambda x: x[1].get('label', '')):
+        timers_recap.append({
+            "label": t_data.get("label"), 
+            "duration": t_data.get("duration_sec"),
+            "status": t_data.get("state")
+        })
+
+    adjustments = session.adjustments_log or []
+    
+    denom = max(len(step_checks), 1)
+    completion_rate = min(checked_steps / denom, 1.0)
+    
+    recap_data = {
+        "final_step_index": session.current_step_index,
+        "completion_rate": completion_rate,
+        "timers_used": timers_recap,
+        "adjustments": adjustments,
+        "servings_made": payload.servings_made or session.servings_target,
+        "leftovers_created": payload.create_leftover
+    }
+    
+    # 2. Update Session
+    now = datetime.now()
+    session.status = "completed"
+    session.completed_at = now
+    session.ended_at = now
+    session.recap_json = recap_data
+    
+    # 3. Create Note Entry
+    recap_text = payload.final_notes or "Session completed."
+    if adjustments:
+        recap_text += f"\n\nAdjustments made: {len(adjustments)}."
+        
+    tags = ["cook_recap"]
+    if payload.leftover_servings and payload.leftover_servings > 0:
+        tags.append("leftovers")
+    if timers_recap:
+        tags.append("timers_used")
+        
+    note_entry = RecipeNoteEntry(
+        workspace_id=workspace.id,
+        recipe_id=session.recipe_id,
+        session_id=session.id,
+        source="cook_session",
+        title="Cook Recap",
+        content_md=recap_text,
+        tags=tags,
+        data_json=recap_data
+    )
+    db.add(note_entry)
+    
+    # 4. Create Leftover (if requested)
+    leftover_id = None
+    if payload.create_leftover and payload.leftover_servings:
+        recipe = db.scalar(select(Recipe).where(Recipe.id == session.recipe_id))
+        leftover_name = recipe.title if recipe else "Leftovers"
+        
+        leftover = Leftover(
+            workspace_id=workspace.id,
+            recipe_id=session.recipe_id,
+            name=leftover_name,
+            servings_left=payload.leftover_servings,
+            notes=payload.final_notes
+        )
+        db.add(leftover)
+        db.flush() 
+        leftover_id = leftover.id
+        
+        pantry_item = PantryItem(
+            workspace_id=workspace.id,
+            name=f"{leftover_name} (Leftover)",
+            qty=payload.leftover_servings,
+            unit="servings",
+            category="Leftovers",
+            source="leftover",
+            expires_on=(datetime.now() + timedelta(days=4)).date(),
+            notes=f"From cook session {session.started_at.date()}"
+        )
+        db.add(pantry_item)
+        db.flush()
+        
+        leftover.pantry_item_id = pantry_item.id
+        
+        tx = PantryTransaction(
+            workspace_id=workspace.id,
+            pantry_item_id=pantry_item.id,
+            source="cook",
+            ref_type="cook_session",
+            ref_id=session.id,
+            delta_qty=payload.leftover_servings,
+            unit="servings",
+            note="Created from cook session"
+        )
+        db.add(tx)
+
+    db.commit()
+    db.refresh(session)
+    db.refresh(note_entry)
+    
+    notify_session_update(session)
+    
+    # Construct response
+    resp = CookCompleteResponse(
+        session_id=session.id,
+        completed_at=session.completed_at,
+        recap=CookRecap(**recap_data),
+        note_entry_id=note_entry.id,
+        leftover_id=leftover_id
+    )
+
+    if pre:
+        await idempotency_store_result(
+            pre[0], 
+            pre[1], 
+            status=200, 
+            body=json.loads(resp.model_dump_json())
+        )
+
+    return resp
+
+    return CookCompleteResponse(
+        session_id=session.id,
+        completed_at=session.completed_at,
+        recap=CookRecap(**recap_data),
+        note_entry_id=note_entry.id,
+        leftover_id=leftover_id
+    )
 
 
 # --- Pantry Decrement ---
@@ -1697,6 +1901,136 @@ def apply_session_notes(
 
 
 # --- V13 Timers & SSE ---
+# (Refactored to top to avoid routing conflicts)
+
+@router.get("/session/{session_id}/timers/suggested", response_model=TimerSuggestionResponse)
+def get_session_timer_suggestions(
+    session_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    recipe = db.query(Recipe).filter_by(id=session.recipe_id, workspace_id=workspace.id).first()
+    if not recipe:
+        raise HTTPException(404, "Recipe not found")
+
+    suggestions = []
+    
+    # Iterate all steps
+    if recipe.steps:
+        for step in recipe.steps:
+            step_suggestions = generate_suggestions_for_step(step, step.step_index)
+            suggestions.extend(step_suggestions)
+
+    return TimerSuggestionResponse(suggested=suggestions)
+
+
+@router.post("/session/{session_id}/timers/from-suggested")
+def create_timers_from_suggested(
+    session_id: str,
+    payload: TimerFromSuggestedRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    recipe = db.query(Recipe).filter_by(id=session.recipe_id, workspace_id=workspace.id).first()
+    if not recipe:
+        raise HTTPException(404, "Recipe not found")
+
+    # Re-generate suggestions to validate client_ids (security/integrity)
+    all_suggestions = []
+    if recipe.steps:
+        for step in recipe.steps:
+            all_suggestions.extend(generate_suggestions_for_step(step, step.step_index))
+            
+    suggestion_map = {s.client_id: s for s in all_suggestions}
+    
+    created_count = 0
+    current_timers = dict(session.timers) if session.timers else {}
+    
+    updated = False
+    now = datetime.now(timezone.utc)
+    
+    for cid in payload.client_ids:
+        suggestion = None
+        if cid in suggestion_map:
+             suggestion = suggestion_map[cid]
+        else:
+             # Fallback: parsing client_id for resilience
+             # Format: step-{idx}-{label}-{dur}
+             # We try a loose regex match
+             import re
+             match = re.match(r"step-(\d+)-(.*)-(\d+)", cid)
+             if match:
+                 s_idx = int(match.group(1))
+                 s_label_slug = match.group(2) # "slow-cook"
+                 s_dur = int(match.group(3))
+                 
+                 # Reconstruct label from slug (approx)
+                 s_label = s_label_slug.replace("-", " ").title()
+                 
+                 suggestion = TimerSuggestion(
+                     client_id=cid,
+                     label=s_label,
+                     step_index=s_idx,
+                     duration_s=s_dur,
+                     reason="fallback_parse"
+                 )
+        
+        if not suggestion:
+            logger.warning(f"Could not resolve suggestion for {cid}")
+            continue
+        
+        # Check for duplicates: same label and duration and active
+        exists = False
+        for tid, t in current_timers.items():
+             if t.get("state") in ["running", "paused", "created"]:
+                 # Loose matching: if label and duration match
+                 if t.get("label") == suggestion.label and t.get("duration_sec") == suggestion.duration_s:
+                     exists = True
+                     break
+        
+        if exists:
+            continue
+            
+        # Create new timer
+        timer_id = str(uuid.uuid4())
+        
+        new_timer = {
+            "id": timer_id,
+            "label": suggestion.label,
+            "duration_sec": suggestion.duration_s,
+            "remaining_sec": suggestion.duration_s,
+            "state": "running" if payload.autostart else "created",
+            "step_index": suggestion.step_index,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat()
+        }
+        
+        if payload.autostart:
+            new_timer["started_at"] = now.isoformat()
+            new_timer["ends_at"] = (now + timedelta(seconds=suggestion.duration_s)).isoformat()
+        
+        current_timers[timer_id] = new_timer
+        updated = True
+        created_count += 1
+
+    if updated:
+        session.timers = current_timers
+        session.updated_at = now
+        db.commit()
+        
+        # Notify
+        notify_session_update(session)
+        
+    return {"created": created_count}
+
 
 @router.post("/session/{session_id}/timers", response_model=TimerResponse)
 async def create_session_timer(
@@ -1910,6 +2244,31 @@ def get_session_next(
     # Filter active timers (exclude deleted)
     active_timers = {k: v for k, v in timers.items() if not v.get("deleted_at")}
 
+    # Calculate Effective Step Index (Autofocus Logic)
+    # Why: User might have moved ahead (checked items on next step, started timer on next step)
+    # without explicitly clicking "Next". We should suggest actions for where they actually ARE.
+    
+    highest_touched_step = current_idx
+    
+    # Check 1: Highest step with any checked items
+    for step_key, bullets in step_checks.items():
+        if any(bullets.values()):
+            try:
+                highest_touched_step = max(highest_touched_step, int(step_key))
+            except (ValueError, TypeError):
+                pass
+            
+    # Check 2: Highest step with active timers (tracking progress)
+    for timer in active_timers.values():
+         # If timer is started or done, it counts as "touched"
+         if timer.get("started_at") or timer.get("state") == "done":
+             idx = timer.get("step_index")
+             if idx is not None:
+                highest_touched_step = max(highest_touched_step, idx)
+
+    # Use effective index
+    current_idx = highest_touched_step # Override for calculation purposes
+
     # Get current step
     current_step = next((s for s in recipe.steps if s.step_index == current_idx), None)
     
@@ -1918,75 +2277,137 @@ def get_session_next(
     
     # Heuristics
     
-    # 1. Checklist
-    if current_step and current_step.bullets:
-        checks_key = str(current_idx)
-        checks = step_checks.get(checks_key, {})
-        checked_count = len(checks)
-        
-        total_bullets = len(current_step.bullets)
-        if checked_count < total_bullets:
-             actions.append(CookNextAction(
-                 type="mark_step_done",
-                 label=f"Mark Step {current_idx + 1} complete",
-                 step_idx=current_idx
-             ))
-             reason = "Step checklist incomplete"
-             return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
-
-    # 2. Timers
-    # Check if there is a timer for this step that is created but not started
-    step_timers = [
+    # 1. Required Timer Logic (Highest Priority)
+    # "Timer-required step" model: If minutes_est exists, timer MUST be done before step is complete.
+    required_timer_s = (current_step.minutes_est * 60) if (current_step and current_step.minutes_est) else None
+    
+    # Identify active timer for this step
+    step_timer = next((
         {"id": k, **v} 
         for k, v in active_timers.items() 
         if v.get("step_index") == current_idx
-    ]
+    ), None)
     
-    pending_timer = next((t for t in step_timers if t.get("state") == "created"), None)
-    if pending_timer:
-        actions.append(CookNextAction(
-            type="start_timer",
-            label=f"Start: {pending_timer.get('label')}",
-            timer_id=pending_timer.get("id")
-        ))
-        reason = "Timer ready but not started"
-        return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
-
-    # 3. Create Timer suggestion
-    # If no timer exists for this step, but step has minutes_est
-    if current_step and current_step.minutes_est and not step_timers:
-        duration_s = current_step.minutes_est * 60
-        actions.append(CookNextAction(
-             type="create_timer",
-             label=f"Start {current_step.minutes_est} min timer",
-             duration_s=duration_s,
-             step_idx=current_idx
-        ))
-        reason = "Cooking time estimated for this step"
-        return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
-
-    # 4. Next Step
-    next_step_idx = current_idx + 1
-    next_step = next((s for s in recipe.steps if s.step_index == next_step_idx), None)
-    
-    if next_step:
-        actions.append(CookNextAction(
-            type="go_to_step",
-            label=f"Continue to Step {next_step_idx + 1}",
-            step_idx=next_step_idx
-        ))
-        reason = "Step complete"
-        return CookNextResponse(suggested_step_idx=next_step_idx, actions=actions, reason=reason)
+    if required_timer_s:
+        # A. No timer exists -> Suggest Create
+        if not step_timer:
+            actions.append(CookNextAction(
+                 type="create_timer",
+                 label=f"Start {current_step.minutes_est} min timer",
+                 duration_s=required_timer_s,
+                 step_idx=current_idx
+            ))
+            reason = "Step requires timer"
+            return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
         
-    # 5. Connect to Finish
-    actions.append(CookNextAction(
-        type="complete_session",
-        label="Complete Cooking",
-        step_idx=current_idx
-    ))
-    reason = "Recipe complete"
+        # B. Timer exists
+        state = step_timer.get("state")
+        
+        # Created/Paused -> Suggest Start
+        if state in ["created", "paused"]:
+             actions.append(CookNextAction(
+                type="start_timer",
+                label=f"Start: {step_timer.get('label')}",
+                timer_id=step_timer.get("id")
+            ))
+             reason = "Timer ready but not started"
+             return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+             
+        # Running -> Suggest Wait (Blocking)
+        if state == "running":
+             actions.append(CookNextAction(
+                 type="wait_timer",
+                 label=f"Timer running...",
+                 timer_id=step_timer.get("id")
+             ))
+             reason = "Waiting for timer"
+             return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+             
+        # Done -> Proceed (Satisfied)
+        # If state == "done", fall through to checklist logic
+
+    # 2. Checklist Logic
+    # New V13.2 Rule: Only suggest "Mark Complete" if checklist is PARTIALLY checked.
+    # AND NO required timer (or timer is done, which it is if we are here).
+    # Wait, if required_timer_s was True, and we are here, it means timer is DONE.
+    # So we can allow "mark complete" if checklist is partial.
     
-    return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+    # Logic Check: "Only allow “mark step complete” when: ... AND there is no required timer for the step"
+    # Actually, if the timer is DONE, we conceptually treated it as "step requirement met".
+    # But the prompt says "prevent... confusion".
+    # If the timer is DONE, the user might want to mark step complete.
+    # Let's follow the prompt strictly: "no required timer".
+    # If `required_timer_s` is truthy, we do NOT suggest `mark_step_done`. 
+    # This prevents the user from bypassing the "natural flow" of the timer step. 
+    # For a timer step, once timer is done + checklist done -> "Next Step".
+    
+    has_bullets = current_step and bool(current_step.bullets)
+    checks_key = str(current_idx)
+    checks_map = step_checks.get(checks_key, {})
+    
+    # Calculate check status
+    checked_count = len([v for v in checks_map.values() if v])
+    checked_any = checked_count > 0
+    checked_all = has_bullets and checked_count == len(current_step.bullets)
+
+    # If Partially Checked: Finish checklist / Mark Complete
+    # Constraint: Only if NO required timer.
+    if has_bullets and checked_any and not checked_all and not required_timer_s:
+         actions.append(CookNextAction(
+             type="mark_step_done",
+             label=f"Mark Step {current_idx + 1} complete",
+             step_idx=current_idx
+         ))
+         reason = "Step checklist incomplete"
+         return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+
+    # 3. Create Timer suggestion (Manual / Optional)
+    # If step has NO minutes_est (already handled in #1), but maybe we parsed something?
+    # Logic #1 handled minutes_est. 
+    # So this block #3 is actually redundant or for "parsed" things if we add parsing later.
+    # Removing #3 as it's covered by #1 logic now.
+
+    # 4. Next Step Logic
+    # Ready if: No bullets OR All bullets checked
+    # AND (if timer required) Timer is Done.
+    
+    ready_for_next = False
+    
+    timer_satisfied = True
+    if required_timer_s:
+         if not step_timer or step_timer.get("state") != "done":
+             timer_satisfied = False
+    
+    if timer_satisfied:
+        if not has_bullets:
+            ready_for_next = True
+        elif checked_all:
+            ready_for_next = True
+        
+    if ready_for_next:
+        next_step_idx = current_idx + 1
+        next_step = next((s for s in recipe.steps if s.step_index == next_step_idx), None)
+        
+        if next_step:
+            actions.append(CookNextAction(
+                type="go_to_step",
+                label=f"Continue to Step {next_step_idx + 1}",
+                step_idx=next_step_idx
+            ))
+            reason = "Step complete"
+            return CookNextResponse(suggested_step_idx=next_step_idx, actions=actions, reason=reason)
+            
+        # 5. Connect to Finish
+        actions.append(CookNextAction(
+            type="complete_session",
+            label="Complete Cooking",
+            step_idx=current_idx
+        ))
+        reason = "Recipe complete"
+        return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+    
+    # Fallback
+    return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason="Step in progress")
 
 @router.get("/session/{session_id}/events")
 async def stream_session_events(
@@ -2023,3 +2444,5 @@ async def stream_session_events(
             await pubsub.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+

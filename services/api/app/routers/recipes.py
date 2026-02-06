@@ -10,7 +10,7 @@ Endpoints:
 import uuid
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -23,7 +23,7 @@ from app.infra.idempotency import idempotency_precheck, idempotency_store_result
 from ..db import get_db
 from ..deps import get_workspace
 from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry, RecipeIngredient
-from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate
+from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate, RecipeLearningsResponse
 from ..settings import settings
 from ..services.events import log_event
 from sqlalchemy import desc, select, func, text, or_
@@ -1005,3 +1005,97 @@ def restore_recipe_note(
     )
     db.commit()
     return entry
+
+
+@router.get("/recipes/{recipe_id}/learnings", response_model=RecipeLearningsResponse)
+def get_recipe_learnings(
+    recipe_id: str,
+    window_days: int = 90,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get structured learnings and highlights from past cook sessions for this recipe."""
+    
+    # Check recipe exists
+    recipe = db.scalar(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
+    )
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # Fetch notes
+    # Filter by created_at > now - window_days
+    cutoff = datetime.now() - timedelta(days=window_days)
+    
+    notes = db.scalars(
+        select(RecipeNoteEntry)
+        .where(
+            RecipeNoteEntry.recipe_id == recipe_id,
+            RecipeNoteEntry.workspace_id == workspace.id,
+            # We want cook_recap or manual notes
+            RecipeNoteEntry.source.in_(['cook_session', 'manual']),
+            RecipeNoteEntry.created_at >= cutoff
+        )
+        .order_by(desc(RecipeNoteEntry.created_at))
+        .limit(20) # Fetch more to analyze
+    ).all()
+    
+    # Analysis Logic
+    highlights = []
+    tag_counts = {}
+    recent_recaps = []
+    
+    # Common problem keywords
+    keywords = {
+        "thick": "Texture issue (thick)",
+        "thin": "Texture issue (thin)",
+        "dry": "Texture issue (dry)",
+        "salty": "Flavor issue (salty)",
+        "bland": "Flavor issue (bland)",
+        "burnt": "Cooking issue (burnt)",
+        "raw": "Cooking issue (raw)",
+        "time": "Time adjustment",
+        "temp": "Temperature adjustment"
+    }
+
+    for note in notes:
+        # Build recent recaps list (limit to requested return limit)
+        if len(recent_recaps) < limit:
+            recent_recaps.append({
+                "created_at": note.created_at,
+                "summary": note.title if note.title != "Cook Recap" else (note.content_md[:50] + "..."),
+                "note_entry_id": note.id
+            })
+            
+        # Tally tags
+        for tag in note.tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            
+        # Extract simple highlights from content
+        sentences = note.content_md.split('.')
+        for s in sentences:
+            s_clean = s.strip()
+            if not s_clean: continue
+            
+            # Check keywords
+            found = False
+            for k in keywords:
+                if k in s_clean.lower():
+                    found = True
+                    # Also add semantic tag
+                    tag_counts[k] = tag_counts.get(k, 0) + 1
+            
+            if found:
+                 if s_clean not in highlights:
+                    highlights.append(s_clean)
+
+    # Sort tags by frequency
+    sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+    top_tags = [t[0] for t in sorted_tags[:5]]
+    
+    return RecipeLearningsResponse(
+        highlights=highlights[:5], # top 5 highlights
+        common_tags=top_tags,
+        recent_recaps=recent_recaps
+    )

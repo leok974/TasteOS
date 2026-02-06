@@ -7,7 +7,7 @@ Request/response models for:
 """
 
 from datetime import datetime, date
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -307,6 +307,7 @@ class SessionResponse(BaseModel):
 class SessionPatchRequest(BaseModel):
     current_step_index: Optional[int] = Field(None, ge=0)
     step_checks_patch: Optional[dict] = None
+    mark_step_complete: Optional[int] = None # v13.3: Atomic step completion
     timers_patch: Optional[dict] = None
     timer_create: Optional[dict] = None
     timer_action: Optional[dict] = None
@@ -614,3 +615,46 @@ class PantryDecrementPreviewResponse(BaseModel):
 class PantryDecrementApplyRequest(BaseModel):
     force: bool = False
     items: Optional[list[PantryDecrementItem]] = None # If provided, use these override values
+
+class TimerSuggestion(BaseModel):
+    client_id: str
+    label: str
+    step_index: int
+    duration_s: int
+    reason: str
+
+class TimerSuggestionResponse(BaseModel):
+    suggested: List[TimerSuggestion]
+
+class TimerFromSuggestedRequest(BaseModel):
+    client_ids: List[str]
+    autostart: bool = False
+
+# --- Cook Completion & Learnings ---
+
+class CookCompleteRequest(BaseModel):
+    servings_made: Optional[float] = None
+    leftover_servings: Optional[float] = None
+    create_leftover: bool = False
+    final_notes: Optional[str] = None
+
+class CookRecap(BaseModel):
+    final_step_index: int
+    completion_rate: float
+    timers_used: List[dict]
+    adjustments: List[dict]
+    servings_made: Optional[float]
+    leftovers_created: bool
+
+class CookCompleteResponse(BaseModel):
+    session_id: str
+    completed_at: datetime
+    recap: CookRecap
+    note_entry_id: Optional[str]
+    leftover_id: Optional[str]
+
+class RecipeLearningsResponse(BaseModel):
+    highlights: List[str]
+    common_tags: List[str]
+    recent_recaps: List[dict]
+

@@ -240,6 +240,7 @@ class RecipeNoteEntry(Base):
     
     # v11: Searchable tags
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+    data_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{}')
 
     applied_to_recipe_notes: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -551,6 +552,7 @@ class CookSession(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     abandoned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_reason: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    recap_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{}')
 
     # Servings scaling
     servings_base: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

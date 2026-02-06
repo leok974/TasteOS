@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { IngredientRow } from "@/features/recipes/components/IngredientRow";
 import {
     X,
     Sparkles,
@@ -111,14 +112,14 @@ function StepCard({
     active: boolean;
     checks: Record<string, boolean>;
     onToggle: (key: string) => void;
-    onTimerCreate?: (label: string, durationSec: number) => void;
+    onTimerCreate?: (stepIndex: number, label: string, durationSec: number) => void;
     showIndex?: boolean;
     showBadge?: boolean;
 }) {
     const handleStartTimer = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onTimerCreate && step.minutes) {
-            onTimerCreate(step.title, step.minutes * 60);
+            onTimerCreate(index, step.title, step.minutes * 60);
         }
     };
 
@@ -229,7 +230,7 @@ function CookTimelineItem({
     onSelect: () => void;
     checks: Record<string, boolean>;
     onToggle: (key: string) => void;
-    onTimerCreate?: (label: string, durationSec: number) => void;
+    onTimerCreate?: (stepIndex: number, label: string, durationSec: number) => void;
     sessionId?: string | null;
     activeTimers?: Record<string, CookTimer>;
 }) {
@@ -305,6 +306,7 @@ export function CookModeOverlay({
     onToggle,
     onSubstitute,
     session,
+    sessionRefetching = false,
     onTimerCreate,
     onTimerAction,
     onSessionEnd,
@@ -320,7 +322,8 @@ export function CookModeOverlay({
     onToggle: (key: string) => void;
     onSubstitute: () => void;
     session?: CookSession | null;
-    onTimerCreate?: (label: string, durationSec: number) => void;
+    sessionRefetching?: boolean;
+    onTimerCreate?: (stepIndex: number, label: string, durationSec: number) => void;
     onTimerAction?: (timerId: string, action: 'start' | 'pause' | 'done' | 'delete') => void;
     onSessionEnd?: (action: 'complete' | 'abandon') => void;
     onServingsChange?: (target: number) => void;
@@ -349,6 +352,10 @@ export function CookModeOverlay({
     // Check initial state once per session load
     useEffect(() => {
         if (session && !sessionInitialLoad) {
+            // Wait for refetch to complete before deciding to auto-dismiss
+            // This prevents stale cache (Step 0) from hiding the banner if server has progress
+            if (sessionRefetching) return; 
+
             // If we load an existing session with progress, allow banner.
             // If we load a new session (step 0), effectively dismiss it immediately.
             if (session.current_step_index > 0 && !session.ended_at) {
@@ -358,7 +365,7 @@ export function CookModeOverlay({
             }
             setSessionInitialLoad(true);
         }
-    }, [session, sessionInitialLoad]);
+    }, [session, sessionInitialLoad, sessionRefetching]);
 
     const showResumeBanner = session &&
         !session.ended_at &&
@@ -470,6 +477,11 @@ export function CookModeOverlay({
     const progress = activeSteps.length > 1 ? Math.round(((stepIdx + 1) / activeSteps.length) * 100) : 0;
 
     // --- Ingredients Helper for Overlay ---
+    // --- Ingredient Logic ---
+
+
+
+
     function OverlayIngredients({
         ingredients,
         baseServings,
@@ -479,22 +491,7 @@ export function CookModeOverlay({
         baseServings: number;
         targetServings: number;
     }) {
-        // Format Helper
-        function formatQtyLocal(qty: number) {
-            const decimal = qty % 1;
-            const whole = Math.floor(qty);
-            let fraction = '';
-
-            if (Math.abs(decimal - 0.5) < 0.01) fraction = '½';
-            else if (Math.abs(decimal - 0.25) < 0.01) fraction = '¼';
-            else if (Math.abs(decimal - 0.75) < 0.01) fraction = '¾';
-            else if (Math.abs(decimal - 0.33) < 0.02) fraction = '⅓';
-            else if (Math.abs(decimal - 0.66) < 0.02) fraction = '⅔';
-
-            if (whole === 0 && fraction) return fraction;
-            if (whole > 0 && fraction) return `${whole} ${fraction}`;
-            return Number(qty.toFixed(2)).toString();
-        }
+        const [mode, setMode] = useState<'original' | 'metric' | 'imperial'>('original');
 
         if (!ingredients || ingredients.length === 0) {
             return (
@@ -507,23 +504,26 @@ export function CookModeOverlay({
         const factor = targetServings / (baseServings || 1);
 
         return (
-            <div className="space-y-2">
-                {ingredients.map((ing, i) => {
-                    const scaledQty = ing.qty ? ing.qty * factor : null;
-                    return (
-                        <div key={i} className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-amber-100/50 shadow-sm">
-                            <div className="h-2 w-2 rounded-full bg-amber-200 flex-shrink-0" />
-                            <div className="flex-1 text-sm font-medium text-stone-700">
-                                {ing.name}
-                            </div>
-                            {scaledQty !== null && (
-                                <div className="text-sm font-bold text-amber-900 bg-amber-50 px-2 py-1 rounded-lg">
-                                    {formatQtyLocal(scaledQty)} <span className="text-xs font-normal text-amber-700">{ing.unit}</span>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+            <div className="space-y-4">
+                 <div className="flex justify-between items-center px-1">
+                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Ingredients</span>
+                     <div className="flex bg-stone-100 rounded-lg p-1">
+                         <button onClick={() => setMode('original')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'original' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Orig</button>
+                         <button onClick={() => setMode('metric')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'metric' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Metric</button>
+                         <button onClick={() => setMode('imperial')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'imperial' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Imp</button>
+                     </div>
+                 </div>
+
+                <div className="space-y-2">
+                    {ingredients.map((ing, i) => (
+                         <IngredientRow 
+                            key={i} 
+                            ingredient={ing} 
+                            scaleFactor={factor} 
+                            mode={mode} 
+                        />
+                    ))}
+                </div>
             </div>
         );
     }
@@ -590,8 +590,7 @@ export function CookModeOverlay({
                             onStartOver={async () => {
                                 // Reset step index
                                 setBannerDismissed(true); // Hide immediately
-                                await apiPatchSession(session!.id, { current_step_index: 0 });
-                                mutate(`/api/cook/session/${session!.id}`);
+                                setStepIdx(0); // Triggers parent mutation
                             }}
                         />
                     )}

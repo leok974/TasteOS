@@ -1,8 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Settings, Settings2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import { apiGet, apiPost, Workspace } from "@/lib/api";
 
 export function WorkspaceSwitcher({ className }: { className?: string }) {
     const { workspaceId, setWorkspaceId } = useWorkspace();
+    const router = useRouter();
     const [open, setOpen] = useState(false);
     const [showNewWorkspaceDialog, setShowNewWorkspaceDialog] = useState(false);
     const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -85,13 +87,14 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
                 </PopoverTrigger>
                 <PopoverContent className="w-[200px] p-0">
                     <Command>
+                        <CommandInput placeholder="Search workspace..." />
                         <CommandList>
-                            <CommandInput placeholder="Search workspace..." />
                             <CommandEmpty>No workspace found.</CommandEmpty>
                             <CommandGroup heading="Workspaces">
                                 {workspaces?.map((workspace) => (
                                     <CommandItem
                                         key={workspace.id}
+                                        value={workspace.name}
                                         onSelect={() => {
                                             setWorkspaceId(workspace.id);
                                             setOpen(false);
@@ -110,11 +113,23 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
                                     </CommandItem>
                                 ))}
                             </CommandGroup>
-                        </CommandList>
-                        <CommandSeparator />
-                        <CommandList>
+                            <CommandSeparator />
+                            <CommandGroup heading="Workspace Settings">
+                                <CommandItem
+                                    value="settings-units"
+                                    onSelect={() => {
+                                        setOpen(false);
+                                        router.push("/settings/units");
+                                    }}
+                                >
+                                    <Settings className="mr-2 h-4 w-4" />
+                                    Units & Measurements
+                                </CommandItem>
+                            </CommandGroup>
+                            <CommandSeparator />
                             <CommandGroup>
                                 <CommandItem
+                                    value="create-workspace"
                                     onSelect={() => {
                                         setOpen(false);
                                         setShowNewWorkspaceDialog(true);

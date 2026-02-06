@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     ArrowLeft,
@@ -27,6 +27,9 @@ import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
 import { RecipeNotesHistory } from '@/features/recipes/RecipeNotesHistory';
 import { InsightsCard } from '@/features/insights/InsightsCard';
+import { IngredientRow } from '@/features/recipes/components/IngredientRow';
+import { RecipeLearningsCard } from '@/features/recipes/components/RecipeLearningsCard';
+import { useUnitPrefs } from '@/features/preferences/hooks';
 import {
     useCookSessionStart,
 } from '@/features/cook/hooks';
@@ -204,11 +207,60 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                     </details>
                 ) : null}
 
-                <div className="mt-6">
+                <div className="mt-6 space-y-6">
+                    <RecipeLearningsCard recipeId={recipe.id} />
                     <InsightsCard scope="recipe" recipeId={recipe.id} />
                 </div>
 
                 <RecipeNotesHistory recipeId={recipe.id} />
+            </div>
+        </div>
+    );
+}
+
+function RecipeIngredients({ recipe }: { recipe: Recipe }) {
+    const { data: prefs, isSuccess } = useUnitPrefs();
+    const [mode, setMode] = useState<'original' | 'metric' | 'imperial'>('original');
+    const [initialized, setInitialized] = useState(false);
+    
+    useEffect(() => {
+        if (isSuccess && prefs && !initialized) {
+            const target = prefs.preferred_system === 'metric' ? 'metric' : 'imperial';
+            setMode(target);
+            setInitialized(true);
+        }
+    }, [isSuccess, prefs, initialized]);
+
+    const handleModeChange = (m: 'original' | 'metric' | 'imperial') => {
+        setMode(m);
+    };
+
+    if (!recipe.ingredients?.length) return null;
+
+    return (
+        <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-900 flex items-center gap-2">
+                    <ChefHat className="h-4 w-4 text-amber-600" />
+                    Ingredients ({recipe.ingredients.length})
+                </h2>
+                
+                 <div className="flex bg-stone-100/50 rounded-lg p-1 border border-stone-100">
+                     <button onClick={() => handleModeChange('original')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'original' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Orig</button>
+                     <button onClick={() => handleModeChange('metric')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'metric' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Metric</button>
+                     <button onClick={() => handleModeChange('imperial')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'imperial' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Imp</button>
+                 </div>
+            </div>
+
+            <div className="space-y-2">
+                {recipe.ingredients.map((ing, i) => (
+                    <IngredientRow 
+                        key={i} 
+                        ingredient={ing} 
+                        scaleFactor={1} 
+                        mode={mode} 
+                    />
+                ))}
             </div>
         </div>
     );
@@ -289,6 +341,9 @@ export function RecipeDetailView({ recipeId }: { recipeId: string }) {
 
                 {/* Hero */}
                 <RecipeHero recipe={recipe} />
+
+                {/* Ingredients */}
+                <RecipeIngredients recipe={recipe} />
 
                 {/* Steps Preview */}
                 <div className="mt-8">

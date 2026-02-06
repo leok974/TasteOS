@@ -658,3 +658,72 @@ class RecipeLearningsResponse(BaseModel):
     common_tags: List[str]
     recent_recaps: List[dict]
 
+
+# --- Unit Conversion ---
+
+class UnitConvertRequest(BaseModel):
+    qty: float
+    from_unit: str
+    to_unit: Optional[str] = None # If None, auto-select based on prefs
+    target_system: Optional[Literal["metric", "us_customary", "imperial"]] = None # Override prefs
+    ingredient_name: Optional[str] = None
+    force_cross_type: Optional[bool] = None # Overrides prefs if set
+
+class UnitConvertResponse(BaseModel):
+    qty: float
+    unit: str
+    confidence: Literal["high", "medium", "low", "none"]
+    note: Optional[str] = None
+    is_approx: bool = False
+
+
+    density_used_g_per_ml: Optional[float] = None
+    density_source: Optional[Literal["override", "common", "none"]] = None
+    
+# --- Preferences ---
+
+class UnitPrefs(BaseModel):
+    system: Literal["us", "metric"] = "us"
+    rounding: Literal["cook", "decimal"] = "cook"
+    decimal_places: int = 2
+    prefer_mass: List[str] = ["oz", "lb", "g", "kg"]
+    prefer_volume: List[str] = ["tsp", "tbsp", "cup", "ml", "l"]
+    prefer_temp: Literal["F", "C"] = "F"
+    allow_cross_type: bool = True
+    density_policy: Literal["known_only", "common_only"] = "common_only"
+    
+class UnitDensityInput(BaseModel):
+    value: float
+    per_unit: str = "cup" # default denominator
+
+class IngredientDensityUpsert(BaseModel):
+    ingredient_name: str
+    density: UnitDensityInput
+
+class IngredientDensityOut(BaseModel):
+    id: str
+    ingredient_key: str
+    display_name: str
+    density_g_per_ml: float
+    source: str
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class IngredientDensityListResponse(BaseModel):
+    items: List[IngredientDensityOut]
+
+class UnitPrefsUpdate(BaseModel):
+    # Partial update, so all optional
+    system: Optional[Literal["us", "metric"]] = None
+    rounding: Optional[Literal["cook", "decimal"]] = None
+    decimal_places: Optional[int] = None
+    prefer_mass: Optional[List[str]] = None
+    prefer_volume: Optional[List[str]] = None
+    prefer_temp: Optional[Literal["F", "C"]] = None
+    allow_cross_type: Optional[bool] = None
+    density_policy: Optional[Literal["known_only", "common_only"]] = None
+
+class UserPrefsResponse(BaseModel):
+    unit_prefs: UnitPrefs

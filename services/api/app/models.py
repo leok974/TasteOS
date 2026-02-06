@@ -25,6 +25,8 @@ from sqlalchemy import (
     ARRAY,
     desc,
     text,
+    Numeric,
+    UniqueConstraint
 )
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -57,11 +59,40 @@ class Workspace(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    # Unit Preferences (JSONB)
+    unit_prefs_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'")
+    )
+
     # Relationships
     recipes: Mapped[list["Recipe"]] = relationship(
         "Recipe", back_populates="workspace", cascade="all, delete-orphan"
     )
+    
+    density_overrides: Mapped[list["IngredientDensityOverride"]] = relationship(
+        "IngredientDensityOverride", back_populates="workspace", cascade="all, delete-orphan"
+    )
 
+class IngredientDensityOverride(Base):
+    """User-defined density overrides for ingredients."""
+    __tablename__ = "ingredient_density_overrides"
+    __table_args__ = (
+        Index("ix_ingredient_density_workspace_id", "workspace_id"),
+        Index("ix_ingredient_density_key", "ingredient_key"),
+        UniqueConstraint("workspace_id", "ingredient_key", name="uq_workspace_ingredient_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    ingredient_key: Mapped[str] = mapped_column(String(255), nullable=False) # Normalized
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False) 
+    density_g_per_ml: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, server_default='user')
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="density_overrides")
 
 class Recipe(Base):
     """Core recipe with workspace scoping."""

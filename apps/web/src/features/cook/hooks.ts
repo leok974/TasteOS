@@ -222,6 +222,33 @@ export function useCookSessionEnd() {
     });
 }
 
+export interface CookCompleteRequest {
+    servings_made?: number;
+    leftover_servings?: number;
+    create_leftover: boolean;
+    final_notes?: string;
+}
+
+export function useCookSessionComplete() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ sessionId, payload }: { sessionId: string; payload: CookCompleteRequest }) => {
+             return cookFetch<CookSession>(`/cook/session/${sessionId}/complete`, {
+                method: "POST",
+                headers: { "Idempotency-Key": newIdemKey() },
+                body: JSON.stringify(payload)
+            });
+        },
+        onSuccess: (data) => {
+             queryClient.setQueryData(["cook-session", "active", data.recipe_id], data);
+             queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+             queryClient.invalidateQueries({ queryKey: ["pantry"] });
+             queryClient.invalidateQueries({ queryKey: ["recipes", "learnings"] });
+        }
+    });
+}
+
 // Hook: AI cooking assistance
 import { toast } from 'sonner';
 
@@ -305,6 +332,7 @@ export function useCookTimerCreate() {
             cookTimerCreate(sessionId, payload),
         onSuccess: (_data, { sessionId }) => {
             queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+            queryClient.invalidateQueries({ queryKey: ["cook-next", sessionId] });
         }
     });
 }
@@ -316,6 +344,7 @@ export function useCookTimerAction() {
             cookTimerAction(sessionId, timerId, payload),
         onSuccess: (_data, { sessionId }) => {
             queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+            queryClient.invalidateQueries({ queryKey: ["cook-next", sessionId] });
         }
     });
 }
@@ -327,6 +356,7 @@ export function useCookTimerPatch() {
             cookTimerPatch(sessionId, timerId, payload),
         onSuccess: (_data, { sessionId }) => {
             queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+            queryClient.invalidateQueries({ queryKey: ["cook-next", sessionId] });
         }
     });
 }
@@ -456,14 +486,6 @@ export function useCookAdjustmentUndo(sessionId?: string) {
 
 // --- Cook Session Summary & Notes Hooks (v10) ---
 
-export function useCookSessionComplete() {
-    return useMutation({
-        mutationFn: async (sessionId: string) => {
-            return cookFetch(`/cook/session/${sessionId}/complete`, { method: "POST" });
-        }
-    });
-}
-
 export function useCookSessionSummary(sessionId: string | undefined, enabled: boolean = false) {
     return useQuery({
         queryKey: ["cook-session", sessionId, "summary"],
@@ -530,7 +552,8 @@ export function useCookNext(sessionId: string | null) {
         queryKey: ["cook-next", sessionId],
         queryFn: () => sessionId ? fetchCookNext(sessionId) : Promise.reject("No session"),
         enabled: !!sessionId,
-        refetchOnWindowFocus: true
+        refetchOnWindowFocus: true,
+        placeholderData: undefined, // Don't show stale suggestions 
     });
 }
 

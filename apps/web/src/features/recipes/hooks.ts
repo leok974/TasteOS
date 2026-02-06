@@ -151,7 +151,27 @@ export function useImportRecipe() {
     });
 }
 
-// --- Ingestion ---
+// --- Learnings ---
+
+export interface RecipeLearningsResponse {
+    highlights: string[];
+    common_tags: string[];
+    recent_recaps: {
+        created_at: string;
+        summary: string;
+        note_entry_id: string;
+    }[];
+}
+
+export function useRecipeLearnings(recipeId: string) {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ["recipes", recipeId, "learnings", { workspaceId }],
+        queryFn: () => apiGet<RecipeLearningsResponse>(`/recipes/${recipeId}/learnings`),
+        enabled: !!recipeId,
+    });
+}
+
 
 export function useIngestRecipe() {
     const queryClient = useQueryClient();

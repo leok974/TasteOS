@@ -12,6 +12,7 @@ import {
     useCookSessionEvents,
 } from '@/features/cook/hooks';
 import { CookModeOverlay, CookStep } from '@/features/cook/components/CookModeOverlay';
+import { CompleteSessionDialog } from '@/features/cook/components/CompleteSessionDialog';
 import { useRecipe } from '@/features/recipes/hooks';
 import type { RecipeStep } from '@/lib/api';
 function apiStepToCookStep(step: RecipeStep): CookStep {
@@ -30,7 +31,7 @@ export function CookShell({ recipeId }: { recipeId: string }) {
     const { data: recipe, isLoading: recipeLoading } = useRecipe(recipeId);
 
     // Cook session hooks
-    const { data: session, isLoading: sessionLoading } = useCookSessionActive(recipeId);
+    const { data: session, isLoading: sessionLoading, isRefetching: sessionRefetching } = useCookSessionActive(recipeId);
     const startSessionMutation = useCookSessionStart();
     const patchSessionMutation = useCookSessionPatch();
     const endSessionMutation = useCookSessionEnd();
@@ -38,6 +39,8 @@ export function CookShell({ recipeId }: { recipeId: string }) {
     // Local State (mirrors page.tsx)
     const [stepIdx, setStepIdx] = useState(0);
     const [subOpen, setSubOpen] = useState(false); // CookModeOverlay handles passing onSubstitute?
+    const [completeOpen, setCompleteOpen] = useState(false);
+
 
     // Sync step index
     useEffect(() => {
@@ -74,10 +77,16 @@ export function CookShell({ recipeId }: { recipeId: string }) {
         const [stepIndex, bulletIndex] = key.split(':').map(Number);
         const checked = !checks[key];
 
+        // Auto-focus logic: If checking item in future step, move there
+        if (checked && stepIndex > stepIdx) {
+            setStepIdx(stepIndex);
+        }
+
         if (session) {
             patchSessionMutation.mutate({
                 sessionId: session.id,
                 patch: {
+                    current_step_index: (checked && stepIndex > stepIdx) ? stepIndex : undefined,
                     step_checks_patch: {
                         step_index: stepIndex,
                         bullet_index: bulletIndex,
@@ -99,6 +108,12 @@ export function CookShell({ recipeId }: { recipeId: string }) {
 
     const handleSessionEnd = (action: 'complete' | 'abandon') => {
         if (!session) return;
+        
+        if (action === 'complete') {
+            setCompleteOpen(true);
+            return;
+        }
+
         endSessionMutation.mutate(
             { sessionId: session.id, action },
             {
@@ -143,6 +158,7 @@ export function CookShell({ recipeId }: { recipeId: string }) {
     }
 
     return (
+        <>
         <CookModeOverlay
             open={true} // Always open when mounted in Shell
             onClose={handleClose}
@@ -154,14 +170,21 @@ export function CookShell({ recipeId }: { recipeId: string }) {
             onToggle={toggleCheck}
             onSubstitute={() => setSubOpen(true)} // Note: SubstituteModal needs to be rendered somewhere.
             session={session}
+            sessionRefetching={sessionRefetching}
             onServingsChange={handleServingsChange}
-            onTimerCreate={(label, durationSec) => {
+            onTimerCreate={(stepIndex, label, durationSec) => {
+                // Auto-focus logic: If creating timer for future step, move there
+                if (stepIndex > stepIdx) {
+                    setStepIdx(stepIndex);
+                }
+                
                 if (session) {
                     patchSessionMutation.mutate({
                         sessionId: session.id,
                         patch: {
+                            current_step_index: stepIndex > stepIdx ? stepIndex : undefined,
                             timer_create: {
-                                step_index: stepIdx,
+                                step_index: stepIndex, // Use explicit setp
                                 bullet_index: null,
                                 label,
                                 duration_sec: durationSec,
@@ -182,5 +205,19 @@ export function CookShell({ recipeId }: { recipeId: string }) {
             }}
             onSessionEnd={handleSessionEnd}
         />
+        {session && (
+            <CompleteSessionDialog
+                open={completeOpen}
+                onOpenChange={setCompleteOpen}
+                sessionId={session.id}
+                initialServingsTarget={session.servings_target || recipe.servings}
+                onComplete={() => {
+                    // Navigate back to recipe page
+                    // The cache invalidation in hooks.ts ensures the new note appears
+                    router.replace(`/recipes/${recipeId}`);
+                }}
+            />
+        )}
+        </>
     );
 }

@@ -18,6 +18,9 @@ from .routers.cook import router as cook_router
 from .routers.dev import router as dev_router
 from .routers.workspaces import router as workspaces_router
 from .routers.insights import router as insights_router
+from .routers.units import router as units_router
+from .routers.prefs import router as prefs_router
+from .routers.units_density import router as density_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -51,4 +54,7 @@ app.include_router(plan_router, prefix="/api", tags=["plan"])
 app.include_router(ai_router, prefix="/api", tags=["ai"])
 app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(cook_router, prefix="/api", tags=["cook"])
+app.include_router(units_router, prefix="/api/units", tags=["units"])
+app.include_router(prefs_router, prefix="/api", tags=["prefs"])
+app.include_router(density_router, prefix="/api/units", tags=["units"])
 app.include_router(dev_router, prefix="/api", tags=["dev"])

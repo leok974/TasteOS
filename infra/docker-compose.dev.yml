@@ -127,6 +127,7 @@ services:
       - api
     volumes:
       - ../apps/web:/app/apps/web
+      - /app/apps/web/node_modules
       - ../package.json:/app/package.json
       - /app/apps/web/node_modules
       - /app/apps/web/.next

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { UnitsSettingsCard } from '@/features/preferences/components/UnitsSettingsCard';
+import { IngredientDensitiesCard } from '@/features/preferences/components/IngredientDensitiesCard';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, Workspace } from '@/lib/api';
 import { useWorkspace } from '@/features/workspaces/WorkspaceProvider';
@@ -28,6 +29,7 @@ export default function UnitSettingsPage() {
             </h1>
             <div className="space-y-6">
                 <UnitsSettingsCard />
+                <IngredientDensitiesCard />
             </div>
         </main>
     );

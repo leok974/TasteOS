@@ -13,8 +13,10 @@ export interface IngredientDensity {
 export interface IngredientDensityUpsert {
     ingredient_name: string;
     density: {
-        value: number;
-        per_unit: string;
+        mass_value: number;
+        mass_unit: string;
+        vol_value: number;
+        vol_unit: string;
     };
 }
 
@@ -50,12 +52,36 @@ export function useDensityUpsert() {
                  headers,
                  body: JSON.stringify(data)
              });
-             if (!res.ok) throw new Error('Failed to save density');
+             if (!res.ok) {
+                 const err = await res.json().catch(() => ({ detail: 'Failed to save density' }));
+                 throw new Error(err.detail || 'Failed to save density');
+             }
              return res.json();
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['densities'] });
             // Invalidate conversions if cached?
+        }
+    });
+}
+
+export function useDensityDelete() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => {
+             const headers = new Headers();
+             const wsId = typeof window !== 'undefined' ? localStorage.getItem('tasteos.workspace_id') : null;
+             if (wsId) headers.set('X-Workspace-Id', wsId);
+
+             const res = await fetch(`${API_BASE}/units/densities/${id}`, {
+                 method: 'DELETE',
+                 headers
+             });
+             if (!res.ok) throw new Error('Failed to delete density');
+             return res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['densities'] });
         }
     });
 }

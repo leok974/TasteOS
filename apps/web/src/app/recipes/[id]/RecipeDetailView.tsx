@@ -220,17 +220,19 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
 
 function RecipeIngredients({ recipe }: { recipe: Recipe }) {
     const { data: prefs, isSuccess } = useUnitPrefs();
-    const [mode, setMode] = useState<'original' | 'metric' | 'imperial'>('original');
+    const [mode, setMode] = useState<'default' | 'metric' | 'imperial'>('default');
     
     // Sync mode with prefs
     useEffect(() => {
         if (isSuccess && prefs) {
             const target = prefs.system === 'metric' ? 'metric' : 'imperial';
+            // Only auto-switch if user hasn't manually interacted yet? 
+            // For now, always sync to workspace pref on load ensures consistency.
             setMode(target);
         }
-    }, [isSuccess, prefs]);
+    }, [isSuccess, prefs?.system]); // Key on system change
 
-    const handleModeChange = (m: 'original' | 'metric' | 'imperial') => {
+    const handleModeChange = (m: 'default' | 'metric' | 'imperial') => {
         setMode(m);
     };
 
@@ -244,7 +246,7 @@ function RecipeIngredients({ recipe }: { recipe: Recipe }) {
                         <ChefHat className="h-4 w-4 text-amber-600" />
                         Ingredients ({recipe.ingredients.length})
                     </h2>
-                    {mode !== 'original' && (
+                    {mode !== 'default' && (
                         <span className="text-[10px] font-bold text-amber-600 mt-1 ml-6 animate-in fade-in">
                             Using: {mode === 'metric' ? 'Metric' : 'US Customary'}
                         </span>
@@ -252,7 +254,7 @@ function RecipeIngredients({ recipe }: { recipe: Recipe }) {
                 </div>
                 
                  <div className="flex bg-stone-100/50 rounded-lg p-1 border border-stone-100">
-                     <button onClick={() => handleModeChange('original')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'original' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Orig</button>
+                     <button onClick={() => handleModeChange('default')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'default' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Default</button>
                      <button onClick={() => handleModeChange('metric')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'metric' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Metric</button>
                      <button onClick={() => handleModeChange('imperial')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'imperial' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Imp</button>
                  </div>

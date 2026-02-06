@@ -47,7 +47,7 @@ export function IngredientRow({
 }: { 
     ingredient: { name: string; qty: number | null; unit: string | null };
     scaleFactor: number;
-    mode: 'original' | 'metric' | 'imperial';
+    mode: 'default' | 'metric' | 'imperial';
 }) {
     const { mutate } = useUnitConversion();
     const { mutate: upsertDensity, isPending: isSavingDensity } = useDensityUpsert();
@@ -67,7 +67,7 @@ export function IngredientRow({
 
     // Handle Mode Changes
     useEffect(() => {
-        if (originalQty === null || !originalUnit || mode === 'original') {
+        if (originalQty === null || !originalUnit || mode === 'default') {
             setCurrentQty(originalQty);
             setCurrentUnit(originalUnit);
             setDensityNeeded(false);

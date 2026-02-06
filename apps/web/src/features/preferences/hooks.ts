@@ -29,7 +29,8 @@ export function useUnitPrefs() {
 
              const res = await fetch(`${API_BASE}/prefs/unit`, { headers });
              if (!res.ok) throw new Error('Failed to fetch prefs');
-             return res.json();
+             const data = await res.json();
+             return data.unit_prefs;
         },
         staleTime: 1000 * 60 * 5, // 5 minutes cache
         enabled: !!workspaceId,
@@ -51,7 +52,8 @@ export function useUpdateUnitPrefs() {
                  body: JSON.stringify(patch)
              });
              if (!res.ok) throw new Error('Failed to update prefs');
-             return res.json();
+             const data = await res.json();
+             return data.unit_prefs;
         },
         onSuccess: (data) => {
             queryClient.setQueryData(['unit_prefs', workspaceId], data);

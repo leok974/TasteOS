@@ -13,11 +13,11 @@
         "services/api/app/insights/generator.py"
       ],
       "provider": "Gemini",
-      "model": "gemini-3-flash-preview (configurable)",
+      "model": "gemini-2.0-flash (configurable)",
       "output_contract": "InsightsResponse (Pydantic)",
       "cache": { "type": "redis", "ttl_s": "variable (via hash)" },
       "status": "live",
-      "notes": "Uses google.generativeai (V1 SDK). Falls back to heuristic if API fails or AI_MODE=mock."
+      "notes": "Uses google.genai (V2 SDK). Unified AIClient. Falls back to heuristic if API fails."
     },
     {
       "name": "Cook Session Summary Polish",

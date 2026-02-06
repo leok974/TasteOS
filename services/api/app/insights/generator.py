@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from ..schemas import InsightsResponse, InsightPattern, InsightPlaybookItem, InsightMethodTip, InsightNextFocus
-from ..settings import settings
+from ..core.ai_client import ai_client
 
 logger = logging.getLogger("tasteos.insights")
 
@@ -14,43 +14,34 @@ class InsightsGenerator:
     async def generate_with_ai(self, facts: Dict[str, Any], style: str) -> Optional[InsightsResponse]:
         """
         Calls Gemini to generate insights from facts.
-        Returns None if AI fails or is disabled, triggering fallback.
+        Returns None if AI fails or is disabled (or mock mode triggers fake response).
         """
-        # If AI not enabled (or mock mode), maybe just return None to force fallback? 
-        # But user might want to test AI flow if key is present.
-        
-        if settings.ai_mode == "mock":
-             # In mock mode, we can return a fake AI response or just None to test fallback.
-             # Let's return a fake AI response to differentiate from fallback.
+        # 1. Mock Mode Check (Delegated to Client check or explicit here if we want forced mock content)
+        # The AIClient returns None if mode is mock.
+        # But here we want a specific mock response for insights.
+        if ai_client.mode == "mock":
              return self._get_mock_ai_response()
 
-        if not settings.gemini_api_key:
-            logger.warning("Gemini API key missing, skipping AI insights.")
+        # 2. Check Availability
+        if not ai_client.is_available():
+            logger.warning("AI client not available, skipping AI insights.")
             return None
-
-        model_name = settings.gemini_text_model  # "gemini-3-flash-preview"
-        
+            
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=settings.gemini_api_key)
-            
-            model = genai.GenerativeModel(model_name)
-            
             prompt = self._build_prompt(facts, style)
             
-            # Using JSON mode if available or just asking for JSON
-            response = await model.generate_content_async(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
+            result = await ai_client.generate_structured(
+                prompt=prompt,
+                response_model=InsightsResponse
             )
             
-            text_response = response.text
-            data = json.loads(text_response)
+            if result:
+                # model_name is not returned by generate_structured directly in result, 
+                # but we can set it if we want, or leave default.
+                # result is a Pydantic model (InsightsResponse)
+                return result
             
-            # Validate with Pydantic
-            result = InsightsResponse(**data)
-            result.model = model_name
-            return result
+            return None
             
         except Exception as e:
             logger.error(f"AI Insights generation failed: {e}")

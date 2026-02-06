@@ -7,11 +7,11 @@
 
 ### 1. Note Insights & Patterns
 *   **UI Surface:** Plan Page & Recipe Detail (Insights Card)
-*   **Provider:** Gemini 3 Flash Preview (`google.generativeai` V1 SDK)
+*   **Provider:** Gemini 2.0 Flash (`google.genai` V2 SDK, via `AIClient`)
 *   **Endpoint:** `POST /api/insights/notes`
 *   **Mechanism:** Analyzes user's note history to find cooking patterns.
 *   **Guardrails:** Pydantic validation (`InsightsResponse`), Workspace scoped.
-*   **Status:** **Live**, but uses older SDK. Falls back to heuristics if API key missing.
+*   **Status:** **Live**. Unified into `AIClient`. Falls back to heuristics.
 
 ### 2. Cook Session Summary Polish
 *   **UI Surface:** Cook Session Summary ("Polish with AI" Toggle)

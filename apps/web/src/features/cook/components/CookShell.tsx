@@ -210,7 +210,7 @@ export function CookShell({ recipeId }: { recipeId: string }) {
                 open={completeOpen}
                 onOpenChange={setCompleteOpen}
                 sessionId={session.id}
-                initialServingsTarget={session.servings_target || recipe.servings}
+                initialServingsTarget={session.servings_target ?? recipe.servings ?? undefined}
                 onComplete={() => {
                     // Navigate back to recipe page
                     // The cache invalidation in hooks.ts ensures the new note appears

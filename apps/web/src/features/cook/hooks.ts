@@ -7,6 +7,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE, newIdemKey } from "@/lib/api";
 
 // Helper function for API calls with workspace headers
+// Re-implementing formatting logic here since hook isn't importing the join helper
+function join(base: string, path: string) {
+    const b = base.endsWith("/") ? base.slice(0, -1) : base;
+    const p = path.startsWith("/") ? path : `/${path}`;
+    return `${b}${p}`;
+}
+
 async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const headers = new Headers(options?.headers);
     headers.set('Content-Type', 'application/json');
@@ -21,7 +28,13 @@ async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
         headers.set('X-Workspace-Id', workspaceId);
     }
 
-    const response = await fetch(`${API_BASE}${url}`, {
+    // Force relative path /api for proxying
+    // See apps/web/src/lib/api.ts for the constant definition
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+    const fullUrl = join(API_BASE, url);
+    console.log("[cookFetch]", { fullUrl });
+
+    const response = await fetch(fullUrl, {
         ...options,
         headers,
     });
@@ -31,6 +44,57 @@ async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
     }
 
     return response.json();
+}
+
+// --- Types (v15.2 Step Help) ---
+
+export interface CookStepHelpRequest {
+    step_index: number;
+    question: string;
+    context?: {
+        user_notes?: string;
+        equipment?: string[];
+        servings_target?: number;
+    };
+    options?: {
+        mode?: "quick" | "detailed";
+        temperature_unit?: "F" | "C";
+    };
+}
+
+export interface CookStepHelpResponse {
+    answer_md: string;
+    bullets: string[];
+    confidence: "high" | "medium" | "low";
+    safety: {
+        contains_food_safety: boolean;
+        allergens: string[];
+    };
+    citations: Array<{
+        type: "recipe_step" | "note" | "general";
+        step_index?: number;
+        note_id?: string;
+        text?: string;
+    }>;
+    source: "ai" | "heuristic";
+    timer_suggestion?: {
+        label: string;
+        seconds: number;
+        rationale: string;
+    } | null;
+}
+
+// --- Hooks ---
+
+export function useCookStepHelp(sessionId: string) {
+    return useMutation({
+        mutationFn: async (req: CookStepHelpRequest) => {
+            return cookFetch<CookStepHelpResponse>(`/cook/session/${sessionId}/help`, {
+                method: "POST",
+                body: JSON.stringify(req)
+            });
+        }
+    });
 }
 
 // Types matching backend responses

@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from typing import Optional, Any, Type, TypeVar
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
@@ -19,6 +20,8 @@ class AIClient:
         self.api_key = settings.gemini_api_key
         self.mode = settings.ai_mode  # "mock" or "gemini"
         self._client: Optional[genai.Client] = None
+        self.last_error: Optional[str] = None
+        self.last_error_at: Optional[datetime] = None
         
         if self.mode == "gemini" and self.api_key:
             self._client = genai.Client(api_key=self.api_key)
@@ -71,6 +74,8 @@ class AIClient:
             return response.parsed
             
         except Exception as e:
+            self.last_error = f"{e.__class__.__name__}: {str(e)}"
+            self.last_error_at = datetime.now(timezone.utc)
             logger.error(f"Gemini generation failed: {e}")
             return None
 
@@ -100,6 +105,8 @@ class AIClient:
             )
             return response.parsed if response_model else response.text
         except Exception as e:
+            self.last_error = f"{e.__class__.__name__}: {str(e)}"
+            self.last_error_at = datetime.now(timezone.utc)
             logger.error(f"Gemini Sync generation failed: {e}")
             return None
 

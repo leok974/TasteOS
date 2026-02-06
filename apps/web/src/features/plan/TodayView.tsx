@@ -93,7 +93,7 @@ function MealCard({ type, entry }: { type: string, entry?: any }) {
 
                 {entry.recipe_id && (
                     <Link href={`/recipes/${entry.recipe_id}`} className="w-full">
-                        <Button className="w-full" variant={isLeftover ? "secondary" : "default"}>
+                        <Button className="w-full" variant={isLeftover ? "outline" : "default"}>
                             {isLeftover ? "View Original Recipe" : "Start Cook Mode"}
                         </Button>
                     </Link>

@@ -124,8 +124,8 @@ export function ShareRecipeModal({ recipeId, trigger }: ShareRecipeModalProps) {
                     </Button>
                     <Button
                         type="button"
-                        variant="secondary"
-                        className="gap-2"
+                        variant="outline"
+                        className="gap-2 bg-stone-100"
                         onClick={handleDownload}
                         disabled={!portableRecipe}
                     >

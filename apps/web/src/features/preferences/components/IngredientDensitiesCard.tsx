@@ -178,8 +178,8 @@ export function IngredientDensitiesCard() {
                                     </div>
                                     <Button 
                                         variant="ghost" 
-                                        size="icon" 
-                                        className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                                        size="sm" 
+                                        className="h-8 w-8 px-0 text-muted-foreground hover:text-red-500"
                                         onClick={() => handleDelete(d.id)}
                                     >
                                         <Trash2 className="h-4 w-4" />

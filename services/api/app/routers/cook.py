@@ -33,6 +33,11 @@ from ..db import get_db, SessionLocal
 from ..deps import get_workspace
 from ..models import Workspace, CookSession, Recipe, RecipeNoteEntry, MealPlanEntry, MealPlan, Leftover, PantryItem, PantryTransaction, CookSessionEvent
 from ..services.ai_service import ai_service
+from ..services.cook_assist_help import (
+    cook_assist_help, 
+    CookStepHelpRequest, 
+    CookStepHelpResponse
+)
 from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
@@ -789,6 +794,26 @@ def undo_pantry_decrement(
     db.refresh(session)
     notify_session_update(session)
     return session_to_response(session)
+
+
+# --- Step Assist ---
+
+@router.post("/session/{session_id}/help", response_model=CookStepHelpResponse)
+async def get_step_help(
+    session_id: str,
+    req: CookStepHelpRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    try:
+        return await cook_assist_help.get_step_help(
+            db=db,
+            session_id=session_id,
+            req=req,
+            workspace_id=str(workspace.id)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/session/{session_id}/events/recent", response_model=List[CookSessionEventOut])

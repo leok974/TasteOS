@@ -8,8 +8,21 @@ from app.db import get_db
 from app.deps import get_workspace
 from app.models import Workspace, PantryItem
 from app.services.ai_service import ai_service, SubstitutionSuggestion
+from app.core.ai_client import ai_client
+from app.settings import settings as app_settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+@router.get("/status")
+def get_ai_status():
+    """Debug endpoint for AI availability."""
+    return {
+        "ai_mode": app_settings.ai_mode,
+        "model_text": app_settings.gemini_text_model,
+        "has_api_key": bool(app_settings.gemini_api_key),
+        "last_error": ai_client.last_error,
+        "last_error_at": ai_client.last_error_at
+    }
 
 class SubstituteRequest(BaseModel):
     ingredient: str

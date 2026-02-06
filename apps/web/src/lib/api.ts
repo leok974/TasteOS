@@ -4,7 +4,14 @@
  * Fetches from the FastAPI backend at /api/*
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api";
+// Defaults to same-origin /api proxy to avoid CORS/mixed-content
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+
+function join(base: string, path: string) {
+    const b = base.endsWith("/") ? base.slice(0, -1) : base;
+    const p = path.startsWith("/") ? path : `/${path}`;
+    return `${b}${p}`;
+}
 
 // --- Types ---
 

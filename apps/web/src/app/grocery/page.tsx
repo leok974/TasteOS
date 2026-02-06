@@ -9,6 +9,7 @@ import { useCurrentGrocery, useGenerateGrocery, useUpdateGroceryItem, groceryKey
 import { useRecipes } from "@/features/recipes/hooks";
 import { useCurrentPlan } from "@/features/plan/hooks";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { deletePantryItem } from "@/lib/api";
 import { pantryKeys } from "@/features/pantry/hooks";
 
@@ -124,11 +125,11 @@ export default function GroceryPage() {
                         {groceryList && (
                              <Button 
                                 variant="ghost" 
-                                size="icon" 
+                                size="sm" 
+                                className="h-9 w-9 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10"
                                 title="Start Over (Delete List)"
                                 onClick={() => setIsClearDialogOpen(true)}
                                 disabled={isClearing || isGenerating}
-                                className="text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10"
                             >
                                 <Trash2 className="w-4 h-4" />
                             </Button>
@@ -400,12 +401,11 @@ function ActiveListSection({ list, onInclude, isGenerating }: { list: any, onInc
                      toast({
                          title: "Moved to Pantry",
                          description: `Added ${data.name} to your pantry.`,
-                         // We store the pantry ID in the toast for the action (requires casting)
-                         // @ts-ignore
-                         action: {
-                             label: "Undo",
-                             onClick: () => handleUndo(data.pantry_item_id!, item.id, data.name)
-                         }
+                         action: (
+                             <ToastAction altText="Undo" onClick={() => handleUndo(data.pantry_item_id!, item.id, data.name)}>
+                                 Undo
+                             </ToastAction>
+                         ),
                      });
                 }
             }
@@ -440,7 +440,7 @@ function ActiveListSection({ list, onInclude, isGenerating }: { list: any, onInc
                             </div>
                             {(t as any).action && (
                                 <Button 
-                                    variant="secondary" 
+                                    variant="outline" 
                                     size="sm" 
                                     onClick={() => { (t as any).action.onClick(); dismiss(t.id); }}
                                     className="h-7 px-2 text-xs"

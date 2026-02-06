@@ -44,7 +44,7 @@ export function ImportRecipeModal() {
                     toast({
                         title: data.created ? "Recipe Imported" : "Recipe Exists",
                         description: data.message,
-                        variant: data.created ? "default" : "secondary"
+                        variant: data.created ? "default" : "default" 
                     });
                     setIsOpen(false);
                     setJsonInput('');
@@ -99,7 +99,7 @@ export function ImportRecipeModal() {
 
                     <div className="flex items-center gap-4">
                         <div className="relative">
-                            <Button variant="secondary" size="sm" className="gap-2">
+                            <Button variant="outline" size="sm" className="gap-2 bg-stone-100">
                                 <FileJson className="h-4 w-4" />
                                 Upload JSON
                             </Button>
@@ -115,7 +115,7 @@ export function ImportRecipeModal() {
                             <Checkbox
                                 id="regen"
                                 checked={regenImage}
-                                onCheckedChange={(c) => setRegenImage(!!c)}
+                                onChange={(e) => setRegenImage(e.target.checked)}
                             />
                             <label
                                 htmlFor="regen"

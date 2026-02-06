@@ -48,6 +48,7 @@ import {
 } from '@/features/cook/hooks';
 import { MethodSwitcher } from '@/features/cook/MethodSwitcher';
 import { AdjustButtons } from '@/features/cook/AdjustButtons';
+import { StepHelpDrawer } from './StepHelpDrawer';
 import { WhyPanel } from '@/features/cook/components/WhyPanel';
 import { TimerSuggestions } from '@/features/cook/components/TimerSuggestions';
 import { SessionSummary } from '@/features/cook/SessionSummary';
@@ -106,6 +107,7 @@ function StepCard({
     onTimerCreate,
     showIndex = true,
     showBadge = true,
+    onHelpClick, // New prop
 }: {
     step: CookStep;
     index: number;
@@ -115,6 +117,7 @@ function StepCard({
     onTimerCreate?: (stepIndex: number, label: string, durationSec: number) => void;
     showIndex?: boolean;
     showBadge?: boolean;
+    onHelpClick?: () => void;
 }) {
     const handleStartTimer = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -149,6 +152,19 @@ function StepCard({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* Help Button (v15.2) */}
+                        {onHelpClick && (
+                             <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-8 w-8 rounded-full p-0 text-amber-700 hover:bg-amber-100"
+                                onClick={(e) => { e.stopPropagation(); onHelpClick(); }}
+                                aria-label="Ask about this step"
+                            >
+                                <Sparkles className="h-4 w-4" />
+                            </Button>
+                        )}
+                        
                         {step.minutes > 0 && onTimerCreate && (
                             <button
                                 onClick={handleStartTimer}
@@ -166,6 +182,7 @@ function StepCard({
                     </div>
                 </div>
             </CardHeader>
+
             <CardContent className="space-y-3">
                 <div className="space-y-2">
                     {step.bullets.map((b, i) => {
@@ -221,6 +238,7 @@ function CookTimelineItem({
     onTimerCreate,
     sessionId,
     activeTimers,
+    onHelpClick, // Added prop
 }: {
     step: CookStep;
     index: number;
@@ -233,6 +251,7 @@ function CookTimelineItem({
     onTimerCreate?: (stepIndex: number, label: string, durationSec: number) => void;
     sessionId?: string | null;
     activeTimers?: Record<string, CookTimer>;
+    onHelpClick?: () => void;
 }) {
     const itemRef = useRef<HTMLDivElement>(null);
 
@@ -274,6 +293,7 @@ function CookTimelineItem({
                     onTimerCreate={onTimerCreate}
                     showIndex={false}
                     showBadge={false}
+                    onHelpClick={isActive ? onHelpClick : undefined}
                 />
 
                 {isActive && sessionId && (
@@ -333,6 +353,9 @@ export function CookModeOverlay({
     const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
     const [summaryId, setSummaryId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'steps' | 'ingredients'>('steps');
+
+    // V15.2 Step Help
+    const [helpTargetIndex, setHelpTargetIndex] = useState<number | null>(null);
 
     // V13 States
     const [isHandsFree, setIsHandsFree] = useState(false);
@@ -491,7 +514,7 @@ export function CookModeOverlay({
         baseServings: number;
         targetServings: number;
     }) {
-        const [mode, setMode] = useState<'original' | 'metric' | 'imperial'>('original');
+        const [mode, setMode] = useState<'default' | 'metric' | 'imperial'>('default');
 
         if (!ingredients || ingredients.length === 0) {
             return (
@@ -508,7 +531,7 @@ export function CookModeOverlay({
                  <div className="flex justify-between items-center px-1">
                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Ingredients</span>
                      <div className="flex bg-stone-100 rounded-lg p-1">
-                         <button onClick={() => setMode('original')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'original' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Orig</button>
+                         <button onClick={() => setMode('default')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'default' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Orig</button>
                          <button onClick={() => setMode('metric')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'metric' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Metric</button>
                          <button onClick={() => setMode('imperial')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-colors", mode === 'imperial' ? "bg-white shadow-sm text-stone-900" : "text-stone-400 hover:text-stone-600")}>Imp</button>
                      </div>
@@ -863,6 +886,7 @@ export function CookModeOverlay({
                                             onTimerCreate={onTimerCreate}
                                             sessionId={session?.id}
                                             activeTimers={session?.timers}
+                                            onHelpClick={() => setHelpTargetIndex(i)}
                                         />
                                     );
                                 })}
@@ -886,7 +910,7 @@ export function CookModeOverlay({
                                     size="lg"
                                     className="flex-1 h-16 rounded-2xl border-2 border-stone-200 text-lg font-bold hover:bg-stone-50 text-stone-600"
                                     onClick={(e) => {
-                                        stop(e);
+                                        e.stopPropagation();
                                         setStepIdx(Math.max(0, stepIdx - 1));
                                     }}
                                     disabled={stepIdx === 0}
@@ -897,7 +921,7 @@ export function CookModeOverlay({
                                     size="lg"
                                     className="flex-1 h-16 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white text-lg font-bold shadow-xl shadow-amber-200/50"
                                     onClick={(e) => {
-                                        stop(e);
+                                        e.stopPropagation();
                                         if (stepIdx < activeSteps.length - 1) {
                                             setStepIdx(stepIdx + 1);
                                         } else {
@@ -978,6 +1002,17 @@ export function CookModeOverlay({
                             </AlertDialogFooter>
                         </AlertDialogContent>
                     </AlertDialog>
+
+                    {/* Step Help Drawer (v15.2) */}
+                    {session && (
+                        <StepHelpDrawer
+                            isOpen={helpTargetIndex !== null}
+                            onClose={() => setHelpTargetIndex(null)}
+                            sessionId={session.id}
+                            stepIndex={helpTargetIndex ?? stepIdx}
+                            onAddTimer={onTimerCreate ? (label, sec) => onTimerCreate(helpTargetIndex ?? stepIdx, label, sec) : undefined}
+                        />
+                    )}
                 </motion.div>
             )}
         </AnimatePresence>

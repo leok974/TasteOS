@@ -67,7 +67,7 @@ export default function PantryPage() {
                         <p className="text-slate-500 text-sm">Manage your inventory</p>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="outline" size="icon" onClick={() => queryClient.invalidateQueries({ queryKey: pantryKeys.all })}>
+                        <Button variant="outline" size="sm" className="w-9 px-0" onClick={() => queryClient.invalidateQueries({ queryKey: pantryKeys.all })}>
                             <RefreshCw className="w-4 h-4" />
                         </Button>
                         <Button onClick={() => setIsAddOpen(true)}>
@@ -165,10 +165,10 @@ export default function PantryPage() {
                                             )}
                                         </div>
                                         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-500" onClick={() => setEditingItem(item)}>
+                                            <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-slate-400 hover:text-blue-500" onClick={() => setEditingItem(item)}>
                                                 <Edit2 className="w-4 h-4" />
                                             </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => deleteItem(item.id)}>
+                                            <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-slate-400 hover:text-red-500" onClick={() => deleteItem(item.id)}>
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
                                         </div>

@@ -22,6 +22,7 @@ export interface PlanMeta {
     boost_applied: boolean;
     boost_reason?: string;
     expiring_ingredients?: string[];
+    use_soon_used?: string[]; // Added property
 }
 
 export interface MealPlan {
@@ -100,11 +101,14 @@ export function useUpdateEntry() {
     const { toast } = useToast();
     const { mutate } = useSWRConfig();
     const { workspaceId } = useWorkspace();
+    const [isUpdating, setIsUpdating] = useState(false);
 
     // Manual mutate function
     const updateEntry = useCallback(async (entryId: string, updates: { recipe_id?: string; is_leftover?: boolean; method_choice?: string }) => {
+        setIsUpdating(true);
         if (!workspaceId) {
             toast({ title: 'Error', description: 'No workspace selected.', variant: 'destructive' });
+            setIsUpdating(false);
             return;
         }
 
@@ -114,40 +118,18 @@ export function useUpdateEntry() {
         const weekStartStr = format(monday, 'yyyy-MM-dd');
         const key = ['/plan/current', workspaceId, weekStartStr];
 
-        // 1. Optimistic Update
-        await mutate(key, (currentPlan: MealPlan | undefined) => {
-            if (!currentPlan) return undefined;
-
-            // Shallow copy plan and entries
-            const newEntries = currentPlan.entries.map(e => {
-                if (e.id === entryId) {
-                    return { ...e, ...updates, recipe_title: "Loading..." }; 
-                }
-                return e;
-            });
-
-            return { ...currentPlan, entries: newEntries };
-        }, false); // don't revalidate yet
-
         try {
-            const updatedEntry = await apiPatch<PlanEntry>(`/plan/entries/${entryId}`, updates);
-
-            // 2. Real Update
-            await mutate(key, (currentPlan: MealPlan | undefined) => {
-                if (!currentPlan) return undefined;
-                const newEntries = currentPlan.entries.map(e => e.id === entryId ? updatedEntry : e);
-                return { ...currentPlan, entries: newEntries };
-            }, false);
-
-            toast({ title: 'Plan Updated', description: 'Meal updated successfully.' });
-
+            await apiPatch(`/plan/entries/${entryId}`, updates);
+            // Re-fetch plan
+            await mutate(key);
+            toast({ title: 'Plan Updated', description: 'Changes saved.' });
         } catch (err) {
-            console.error(err);
-            // 3. Rollback
-            toast({ title: 'Update Failed', description: 'Could not update meal.', variant: 'destructive' });
-            mutate(key); // Revalidate to get true server state
+            console.error('Failed to update plan entry', err);
+            toast({ title: 'Error', description: 'Could not update plan.', variant: 'destructive' });
+        } finally {
+            setIsUpdating(false);
         }
-    }, [toast, mutate, workspaceId]);
+    }, [workspaceId, toast, mutate]);
 
-    return { updateEntry };
+    return { updateEntry, isUpdating };
 }

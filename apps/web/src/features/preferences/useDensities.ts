@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { API_BASE, apiPost, apiGet, apiDelete, apiPut } from '@/lib/api';
+import { API_BASE, apiPost, apiGet, apiDelete, apiPatch } from '@/lib/api';
 
 export interface IngredientDensity {
     id: string;

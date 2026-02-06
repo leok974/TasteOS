@@ -144,8 +144,10 @@ export function IngredientRow({
         upsertDensity({
             ingredient_name: ingredient.name,
             density: {
-                value: val,
-                per_unit: "cup" // We'll ask "grams per cup"
+                mass_value: val,
+                mass_unit: "g",
+                vol_value: 1,
+                vol_unit: "cup"
             }
         }, {
             onSuccess: () => {

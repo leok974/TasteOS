@@ -693,8 +693,10 @@ class UnitPrefs(BaseModel):
     density_policy: Literal["known_only", "common_only"] = "common_only"
     
 class UnitDensityInput(BaseModel):
-    value: float
-    per_unit: str = "cup" # default denominator
+    mass_value: float
+    mass_unit: str
+    vol_value: float = 1.0
+    vol_unit: str = "cup"
 
 class IngredientDensityUpsert(BaseModel):
     ingredient_name: str

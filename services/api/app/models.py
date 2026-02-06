@@ -131,6 +131,7 @@ class Recipe(Base):
 
     # Relationships
     workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="recipes")
+
     steps: Mapped[list["RecipeStep"]] = relationship(
         "RecipeStep", back_populates="recipe", cascade="all, delete-orphan",
         order_by="RecipeStep.step_index"

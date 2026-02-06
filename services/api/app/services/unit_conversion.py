@@ -93,25 +93,63 @@ UNITS_DB = {
 }
 
 # Density Table: g/ml (approximate)
-# Water = 1.0
+# Derived from common cooking defaults (g/cup / 240.0)
 DENSITY_DB = {
+    # Water-like (240-245g/cup)
     "water": 1.0,
-    "milk": 1.03,
-    "oil": 0.92,
-    "olive oil": 0.92,
-    "vegetable oil": 0.92,
-    "butter": 0.911, # stick butter
-    "flour": 0.593, # all purpose, shifted
-    "all-purpose flour": 0.593,
-    "all purpose flour": 0.593,
-    "sugar": 0.849, # granulated
-    "granulated sugar": 0.849,
-    "brown sugar": 0.93, # packed
-    "powdered sugar": 0.56,
+    "milk": 1.02, # whole
+    "whole milk": 1.02,
+    "broth": 1.0,
+    "stock": 1.0,
+    "chicken broth": 1.0,
+    "beef broth": 1.0,
+    "vegetable broth": 1.0,
+
+    # Oils & Fats (218-227g/cup)
+    "oil": 0.91,
+    "vegetable oil": 0.91,
+    "olive oil": 0.91,
+    "canola oil": 0.91,
+    "butter": 0.95, # melted
+    "melted butter": 0.95,
+
+    # Sweeteners
     "honey": 1.42,
-    "salt": 1.2, # table salt (highly variable based on grain check note)
-    "rice": 0.85, # uncooked
-    "oats": 0.38, # rolled
+    "maple syrup": 1.30,
+    "sugar": 0.83, # granulated (200g/cup)
+    "white sugar": 0.83,
+    "granulated sugar": 0.83,
+    "brown sugar": 0.92, # packed (220g/cup)
+    "packed brown sugar": 0.92,
+    "powdered sugar": 0.50, # (120g/cup)
+    "confectioners sugar": 0.50,
+
+    # Flours & Dry Goods (120-130g/cup typical)
+    "flour": 0.50, # all-purpose (120g/cup)
+    "all-purpose flour": 0.50,
+    "all purpose flour": 0.50,
+    "ap flour": 0.50,
+    "bread flour": 0.54, # (130g/cup)
+    "whole wheat flour": 0.50, # (120g/cup)
+    "cornstarch": 0.50, # (120g/cup)
+    "corn starch": 0.50,
+    "cocoa": 0.35, # (85g/cup)
+    "cocoa powder": 0.35,
+    "oats": 0.375, # rolled (90g/cup)
+    "rolled oats": 0.375,
+    "rice": 0.77, # uncooked white (185g/cup)
+    "white rice": 0.77,
+    "uncooked rice": 0.77,
+
+    # Pantry Staples
+    "salt": 1.20, # table salt/fine (288g/cup)
+    "table salt": 1.20,
+    "fine salt": 1.20,
+    "kosher salt": 0.56, # Defauting to Diamond Crystal (135g/cup) - safer than Morton
+    "diamond crystal kosher salt": 0.56,
+    "diamond crystal salt": 0.56,
+    "morton kosher salt": 0.96, # (230g/cup)
+    "morton salt": 0.96,
 }
 
 # Synonyms map for input normalization
@@ -153,6 +191,33 @@ def normalize_unit(unit: str) -> Optional[str]:
 def get_unit_info(unit: str) -> Tuple[UnitType, float]:
     """Get type and factor for a normalized unit."""
     return UNITS_DB.get(unit, ("unknown", 1.0))
+
+def calculate_density_factor(
+    mass_val: float, mass_unit: str,
+    vol_val: float, vol_unit: str
+) -> Optional[float]:
+    """Calculate g/ml density from arbitrary mass and volume measurements."""
+    norm_m = normalize_unit(mass_unit)
+    norm_v = normalize_unit(vol_unit)
+    
+    if not norm_m or not norm_v:
+        return None
+        
+    type_m, factor_m = get_unit_info(norm_m)
+    type_v, factor_v = get_unit_info(norm_v)
+    
+    if type_m != "mass" or type_v != "volume":
+        return None
+        
+    # Convert to base units (g and ml)
+    g_val = mass_val * factor_m
+    ml_val = vol_val * factor_v
+    
+    if ml_val == 0:
+        return None
+        
+    return g_val / ml_val
+
 
 def estimate_density(ingredient_name: str) -> Tuple[float, str]:
     """
@@ -254,14 +319,26 @@ def convert_unit(
             
         result_qty = result_base_to / factor_to
         
-        note_text = f"Using density override: {density:.3g} g/ml" if is_override else f"Approximated using density of {ingredient_name or 'water'}"
+        if is_override:
+            note_text = f"Using density override: {density:.3g} g/ml"
+            is_approx = False
+            confidence = "high"
+        else:
+            note_text = "Uses common cooking density defaults — set an override for precision."
+            is_approx = True
+            # If estimate_density gave us 'medium' (exact match), stick with it. 
+            # If 'low' (substring), also stick with it but maybe warn?
+            # User request: "For anything from this list, mark conversions as: confidence: medium"
+            if confidence == "medium":
+                confidence = "medium"
+            # If it was low/none, it remains so
         
         return ConversionResult(
             result_qty, 
             norm_to, 
             confidence, 
             note=note_text,
-            is_approx=not is_override
+            is_approx=is_approx
         )
 
     # Case 3: Incompatible (Count <-> Mass/Vol)

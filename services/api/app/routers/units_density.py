@@ -8,7 +8,7 @@ from ..deps import get_db, get_workspace
 from ..models import Workspace, IngredientDensityOverride
 from ..schemas import IngredientDensityOut, IngredientDensityUpsert, IngredientDensityListResponse
 from ..services.ingredient_normalize import normalize_ingredient_key
-from ..services.unit_conversion import get_unit_info, normalize_unit
+from ..services.unit_conversion import get_unit_info, normalize_unit, calculate_density_factor
 
 router = APIRouter()
 
@@ -47,28 +47,20 @@ def upsert_density(
     if not key:
         raise HTTPException(status_code=400, detail="Invalid ingredient name")
     
-    # 2. Convert user input to g/ml
-    # Input: value (e.g. 120), per_unit (e.g. "cup")
-    # g/ml = (value g) / (factor_to_ml_per_unit)
+    # 2. Convert user input to g/ml using helper
+    g_per_ml = calculate_density_factor(
+        req.density.mass_value, req.density.mass_unit,
+        req.density.vol_value, req.density.vol_unit
+    )
     
-    norm_unit = normalize_unit(req.density.per_unit)
-    if not norm_unit:
-        raise HTTPException(status_code=400, detail=f"Unknown unit: {req.density.per_unit}")
-        
-    u_type, factor = get_unit_info(norm_unit)
-    if u_type != "volume":
-        raise HTTPException(status_code=400, detail="Density denominator must be a volume unit (e.g. cup, ml)")
-        
-    # Factor is ml for that unit (e.g. cup=236.588)
-    vol_ml = factor
-    mass_g = req.density.value
-    
-    g_per_ml = mass_g / vol_ml
+    if g_per_ml is None:
+         raise HTTPException(status_code=400, detail="Invalid units (must be one mass and one volume unit)")
     
     # Validate sane range (0.05 to 5.0)
     # Water = 1.0.  Lead = 11.0.  Balsa wood = 0.16.  Aerogel = 0.00something.
     # Flour ~ 0.5-0.6. Sugar ~ 0.8. Salt ~ 1.2.
     if not (0.05 <= g_per_ml <= 5.0):
+        # Allow forceful override via a query param in future if needed, but for now block insane values
         raise HTTPException(status_code=400, detail="Density out of sane range (0.05 - 5.0 g/ml)")
 
     # 3. Check existing

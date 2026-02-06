@@ -2,57 +2,43 @@ import re
 
 def normalize_ingredient_key(name: str) -> str:
     """
-    Normalize ingredient name to a canonical key for density lookup.
+    Normalize an ingredient name to a consistent key for density lookups.
     
-    Rules:
-    - Lowercase
-    - Punctuation removal
-    - Whitespace collapse
-    - Remove common descriptors
-    - Basic singularization
+    Strategies:
+    1. Lowercase
+    2. Remove common noisy modifiers (fresh, chopped, diced, etc) - though 'chopped' can affect density, 
+       for broad matching usually we want 'Onion' to match 'Onion, chopped'.
+    3. Remove punctuation
+    4. Collapse whitespace
     """
     if not name:
         return ""
         
-    # 1. Lowercase
-    s = name.lower()
+    normalized = name.lower()
     
-    # 2. Remove parentheticals (e.g. "Flour (all purpose)") -> "Flour "
-    s = re.sub(r'\(.*?\)', '', s)
+    # 1. Remove parenthetical info e.g. "flour (all purpose)" -> "flour "
+    normalized = re.sub(r'\(.*?\)', '', normalized)
     
-    # 3. Punctuation removal (keep letters, numbers, spaces)
-    # Replace with space to avoid merging words (all-purpose -> all purpose)
-    s = re.sub(r'[^\w\s]', ' ', s)
+    # 2. Cleanup punctuation
+    normalized = re.sub(r'[^\w\s]', ' ', normalized)
     
-    # 4. Collapse whitespace
-    s = re.sub(r'\s+', ' ', s).strip()
+    # 3. Collapse whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
     
-    # 5. Remove common descriptors
-    # Note: Order matters roughly (longer first if overlaps)
-    descriptors = [
-        "fresh", "chopped", "minced", "diced", "sliced",
-        "optional", "to taste", "for garnish",
-        "dry", "dried", "ground", "whole",
-        "fine", "coarse", "granulated",
-        "large", "medium", "small",
-        "organic", "raw", "unsalted", "salted"
+    # 4. Remove modifiers (Basic list, can be expanded)
+    # Note: Pluralization (onions -> onion) is hard without NLP lib, keeping simple for now.
+    modifiers = [
+        "fresh", "chopped", "diced", "minced", "sliced", "grated", "shredded",
+        "optional", "to taste", "large", "small", "medium", "whole", 
+        "can", "jar", "frozen", "dried", "dry", "raw", "cooked"
     ]
     
-    # Use word boundary to avoid partial matches
-    for desc in descriptors:
-        s = re.sub(rf'\b{desc}\b', '', s)
-        
-    # 6. Collapse whitespace again after removal
-    s = re.sub(r'\s+', ' ', s).strip()
+    words = normalized.split()
+    filtered = [w for w in words if w not in modifiers]
     
-    # 7. Basic singularization
-    # Very naive: if ends in 's', not 'ss', len > 3 -> strip 's'
-    words = s.split()
-    sing_words = []
-    for w in words:
-        if len(w) > 3 and w.endswith('s') and not w.endswith('ss'):
-             sing_words.append(w[:-1])
-        else:
-             sing_words.append(w)
-             
-    return " ".join(sing_words)
+    # If we stripped everything (e.g. input was just "fresh"), revert to normalized
+    if not filtered:
+        return normalized
+        
+    return " ".join(filtered)
+

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUnitConversion } from "@/features/recipes/useUnitConversion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/cn";
@@ -6,9 +6,17 @@ import { useDensityUpsert } from "@/features/preferences/useDensities";
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useUnitPrefs } from '@/features/preferences/hooks';
 
-export function formatQtyLocal(qty: number) {
+export function formatQtyLocal(qty: number, options?: { rounding?: 'cook' | 'decimal', decimals?: number }) {
     if (!qty && qty !== 0) return '';
+    
+    // Decimal mode
+    if (options?.rounding === 'decimal') {
+        return qty.toFixed(options.decimals || 2);
+    }
+
+    // Cook mode (fractions)
     const decimal = qty % 1;
     const whole = Math.floor(qty);
     let fraction = '';
@@ -22,8 +30,15 @@ export function formatQtyLocal(qty: number) {
 
     if (whole === 0 && fraction) return fraction;
     if (whole > 0 && fraction) return `${whole} ${fraction}`;
+    
+    // Fallback for non-fractional numbers in cook mode
+    if (Math.abs(Math.round(qty) - qty) < 0.05) return Math.round(qty).toString();
+    
     return Number(qty.toFixed(2)).toString();
 }
+
+const METRIC_UNITS = ['g', 'kg', 'ml', 'l'];
+const US_UNITS = ['oz', 'lb', 'cup', 'tbsp', 'tsp'];
 
 export function IngredientRow({ 
     ingredient, 
@@ -36,6 +51,7 @@ export function IngredientRow({
 }) {
     const { mutate } = useUnitConversion();
     const { mutate: upsertDensity, isPending: isSavingDensity } = useDensityUpsert();
+    const { data: prefs } = useUnitPrefs();
 
     const originalQty = ingredient.qty ? ingredient.qty * scaleFactor : null;
     const originalUnit = ingredient.unit;
@@ -105,6 +121,13 @@ export function IngredientRow({
         setLastAttempt({ qty, from, to, system });
     };
 
+    const sortedUnits = useMemo(() => {
+        if (!prefs) return [...METRIC_UNITS, ...US_UNITS];
+        const primary = prefs.system === 'metric' ? METRIC_UNITS : US_UNITS;
+        const secondary = prefs.system === 'metric' ? US_UNITS : METRIC_UNITS;
+        return [...primary, ...secondary];
+    }, [prefs]);
+
     // Manual Override (Click to pick unit)
     const handleUnitSelect = (target: string) => {
             if (originalQty === null || !originalUnit) return;
@@ -147,13 +170,13 @@ export function IngredientRow({
                             "text-sm font-bold text-amber-900 bg-amber-50 px-2 py-1 rounded-lg hover:bg-amber-100 transition-colors",
                             isConverting && "opacity-50 animate-pulse"
                         )}>
-                            {formatQtyLocal(currentQty)} <span className="text-xs font-normal text-amber-700">{currentUnit}</span>
+                            {formatQtyLocal(currentQty, { rounding: prefs?.rounding, decimals: prefs?.decimal_places })} <span className="text-xs font-normal text-amber-700">{currentUnit}</span>
                         </button>
                     </PopoverTrigger>
                     <PopoverContent className="w-40 p-2 z-[150]">
                         <div className="grid gap-1">
                             <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Convert To</p>
-                            {['g', 'oz', 'ml', 'cup', 'tbsp', 'tsp'].map(u => (
+                            {sortedUnits.map(u => (
                                 <button 
                                     key={u}
                                     onClick={() => handleUnitSelect(u)}

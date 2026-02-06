@@ -221,15 +221,14 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
 function RecipeIngredients({ recipe }: { recipe: Recipe }) {
     const { data: prefs, isSuccess } = useUnitPrefs();
     const [mode, setMode] = useState<'original' | 'metric' | 'imperial'>('original');
-    const [initialized, setInitialized] = useState(false);
     
+    // Sync mode with prefs
     useEffect(() => {
-        if (isSuccess && prefs && !initialized) {
-            const target = prefs.preferred_system === 'metric' ? 'metric' : 'imperial';
+        if (isSuccess && prefs) {
+            const target = prefs.system === 'metric' ? 'metric' : 'imperial';
             setMode(target);
-            setInitialized(true);
         }
-    }, [isSuccess, prefs, initialized]);
+    }, [isSuccess, prefs]);
 
     const handleModeChange = (m: 'original' | 'metric' | 'imperial') => {
         setMode(m);
@@ -240,10 +239,17 @@ function RecipeIngredients({ recipe }: { recipe: Recipe }) {
     return (
         <div className="mt-8">
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-900 flex items-center gap-2">
-                    <ChefHat className="h-4 w-4 text-amber-600" />
-                    Ingredients ({recipe.ingredients.length})
-                </h2>
+                <div className="flex flex-col">
+                    <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-900 flex items-center gap-2">
+                        <ChefHat className="h-4 w-4 text-amber-600" />
+                        Ingredients ({recipe.ingredients.length})
+                    </h2>
+                    {mode !== 'original' && (
+                        <span className="text-[10px] font-bold text-amber-600 mt-1 ml-6 animate-in fade-in">
+                            Using: {mode === 'metric' ? 'Metric' : 'US Customary'}
+                        </span>
+                    )}
+                </div>
                 
                  <div className="flex bg-stone-100/50 rounded-lg p-1 border border-stone-100">
                      <button onClick={() => handleModeChange('original')} className={cn("px-2 py-1 text-[10px] uppercase font-bold rounded-md transition-all", mode === 'original' ? "bg-white shadow-sm text-stone-900 ring-1 ring-stone-900/5" : "text-stone-400 hover:text-stone-600")}>Orig</button>

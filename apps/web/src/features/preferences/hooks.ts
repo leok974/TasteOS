@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
+import { useWorkspace } from '@/features/workspaces/WorkspaceProvider';
 
 export interface UnitPrefs {
     system: "us" | "metric";
@@ -19,28 +20,30 @@ export interface UnitPrefsUpdate {
 }
 
 export function useUnitPrefs() {
+    const { workspaceId } = useWorkspace();
     return useQuery<UnitPrefs>({
-        queryKey: ['unit_prefs'],
+        queryKey: ['unit_prefs', workspaceId],
         queryFn: async () => {
              const headers = new Headers();
-             const wsId = typeof window !== 'undefined' ? localStorage.getItem('tasteos.workspace_id') : null;
-             if (wsId) headers.set('X-Workspace-Id', wsId);
+             if (workspaceId) headers.set('X-Workspace-Id', workspaceId);
 
              const res = await fetch(`${API_BASE}/prefs/unit`, { headers });
              if (!res.ok) throw new Error('Failed to fetch prefs');
              return res.json();
         },
         staleTime: 1000 * 60 * 5, // 5 minutes cache
+        enabled: !!workspaceId,
     });
 }
 
 export function useUpdateUnitPrefs() {
     const queryClient = useQueryClient();
+    const { workspaceId } = useWorkspace();
+
     return useMutation({
         mutationFn: async (patch: UnitPrefsUpdate) => {
              const headers = new Headers({ 'Content-Type': 'application/json' });
-             const wsId = typeof window !== 'undefined' ? localStorage.getItem('tasteos.workspace_id') : null;
-             if (wsId) headers.set('X-Workspace-Id', wsId);
+             if (workspaceId) headers.set('X-Workspace-Id', workspaceId);
 
              const res = await fetch(`${API_BASE}/prefs/unit`, {
                  method: 'PATCH',
@@ -51,8 +54,8 @@ export function useUpdateUnitPrefs() {
              return res.json();
         },
         onSuccess: (data) => {
-            queryClient.setQueryData(['unit_prefs'], data);
-            queryClient.invalidateQueries({ queryKey: ['unit_prefs'] });
+            queryClient.setQueryData(['unit_prefs', workspaceId], data);
+            queryClient.invalidateQueries({ queryKey: ['unit_prefs', workspaceId] });
             // Invalidate conversions or density lookups if needed
             // queryClient.invalidateQueries({ queryKey: ['unit_conversion'] }); 
         }

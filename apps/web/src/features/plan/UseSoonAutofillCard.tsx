@@ -19,7 +19,7 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDismissed, setIsDismissed] = useState(false);
     const [wasteReductionMode, setWasteReductionMode] = useState(true);
-    
+
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -48,13 +48,13 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                     plan_entry_id: p.plan_entry_id,
                     recipe_id: p.after.recipe_id
                 }));
-            
+
             return applyAutofillProposals(weekStart, changes);
         },
         onSuccess: (data) => {
             if (data) {
-                toast({ 
-                    title: "Plan Updated", 
+                toast({
+                    title: "Plan Updated",
                     description: `Applied ${data.applied} recipe swaps.`,
                     className: "bg-green-600 text-white"
                 });
@@ -84,18 +84,18 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2">
-                             <Checkbox 
-                                id="waste-mode" 
+                            <Checkbox
+                                id="waste-mode"
                                 checked={wasteReductionMode}
-                                onCheckedChange={(c) => setWasteReductionMode(!!c)}
+                                onChange={(e) => setWasteReductionMode(e.target.checked)}
                                 className="border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
-                             />
-                             <label htmlFor="waste-mode" className="text-sm font-medium text-emerald-800 cursor-pointer select-none">
+                            />
+                            <label htmlFor="waste-mode" className="text-sm font-medium text-emerald-800 cursor-pointer select-none">
                                 Prioritize Waste
-                             </label>
+                            </label>
                         </div>
-                        <Button 
-                            onClick={() => generateMutation.mutate()} 
+                        <Button
+                            onClick={() => generateMutation.mutate()}
                             disabled={generateMutation.isPending}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
                             data-testid="autofill-generate"
@@ -130,12 +130,12 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
             <CardContent className="p-4 space-y-4">
                 <div className="grid gap-3">
                     {proposals.map((proposal) => (
-                        <div 
-                            key={proposal.proposal_id} 
+                        <div
+                            key={proposal.proposal_id}
                             className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
                             data-testid={`autofill-proposal-${proposal.proposal_id}`}
                         >
-                            <Checkbox 
+                            <Checkbox
                                 checked={selectedIds.has(proposal.proposal_id)}
                                 onChange={(e) => {
                                     const checked = e.target.checked;
@@ -147,7 +147,7 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                                 className="mt-1"
                                 data-testid={`autofill-approve-${proposal.proposal_id}`}
                             />
-                            
+
                             <div className="flex-1 space-y-2">
                                 <div className="flex justify-between text-sm">
                                     <span className="font-medium text-slate-500">
@@ -159,7 +159,7 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                                         </Badge>
                                     )}
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2">
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm line-through text-slate-400 truncate">
@@ -179,7 +179,7 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                                         <Badge key={i} variant="outline" className="text-xs font-normal bg-slate-50">
                                             {r.kind === "use_soon_match" && <span className="mr-1">🍃 Uses {r.value}</span>}
                                             {r.kind === "expires_in_days" && <span className="mr-1 text-amber-600">⚠ Expires in {r.value}d</span>}
-                                            {r.kind === "quick" && <span className="mr-1 flex items-center"><Clock className="w-3 h-3 mr-1"/> {r.value}m</span>}
+                                            {r.kind === "quick" && <span className="mr-1 flex items-center"><Clock className="w-3 h-3 mr-1" /> {r.value}m</span>}
                                             {r.kind === "duplicate_in_week" && <span className="mr-1 text-orange-600">Repeated Dish</span>}
                                             {r.kind === "waste_reduction_override" && <span className="mr-1 text-red-600 font-medium">Urgent Rescue</span>}
                                         </Badge>
@@ -194,8 +194,8 @@ export function UseSoonAutofillCard({ weekStart }: { weekStart: string }) {
                     <Button variant="outline" onClick={() => setProposals(null)}>
                         Cancel
                     </Button>
-                    <Button 
-                        onClick={() => applyMutation.mutate()} 
+                    <Button
+                        onClick={() => applyMutation.mutate()}
                         disabled={selectedIds.size === 0 || applyMutation.isPending}
                         data-testid="autofill-apply"
                     >

@@ -559,6 +559,8 @@ class CookSession(Base):
     current_step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     step_checks: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     timers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    hands_free: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     
     # Method Switching
     method_key: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

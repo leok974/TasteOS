@@ -25,7 +25,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from pydantic import BaseModel, Field
 
-from app.realtime.cook_bus import publish_session_updated_sync, subscribe_session
+from app.realtime.cook_bus import publish_session_updated_sync, subscribe_session, publish_event
 from app.infra.redis_cache import get_or_set_json_sync
 from app.infra.idempotency import idempotency_precheck, idempotency_store_result, idempotency_clear_key
 
@@ -48,7 +48,9 @@ from ..schemas import (
     AdjustUndoRequest, CookSessionEventOut,
     SessionSummaryResponse, SessionNotesPreviewRequest, SessionNotesPreviewResponse, SessionNotesApplyRequest,
     SummaryPolishRequest, SummaryPolishResponse, PolishedSummary,
-    PantryDecrementPreviewResponse, PantryDecrementApplyRequest
+    PantryDecrementPreviewResponse, PantryDecrementApplyRequest,
+    TimerResponse, TimerCreateRequest, TimerActionRequest, TimerPatchRequest,
+    CookNextResponse, CookNextAction
 )
 
 router = APIRouter(prefix="/cook", tags=["cook"])
@@ -1692,3 +1694,332 @@ def apply_session_notes(
     db.commit()
     
     return {"status": "ok", "recipe_id": recipe.id}
+
+
+# --- V13 Timers & SSE ---
+
+@router.post("/session/{session_id}/timers", response_model=TimerResponse)
+async def create_session_timer(
+    session_id: str,
+    body: TimerCreateRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    # Idempotency check
+    existing_timer = None
+    for timer_id, t_data in session.timers.items():
+        if t_data.get("client_id") == body.client_id:
+            existing_timer = t_data.copy()
+            existing_timer["id"] = timer_id
+            break
+    
+    if existing_timer:
+        return existing_timer
+
+    new_timer_id = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    
+    timer_data = {
+        "client_id": body.client_id,
+        "label": body.label,
+        "step_index": body.step_index,
+        "duration_sec": body.duration_s,
+        "state": "created",
+        "created_at": now,
+        "updated_at": now,
+        "started_at": None,
+        "paused_at": None,
+        "done_at": None,
+        "deleted_at": None
+    }
+    
+    # Copy dict to avoid mutation issues if SQLAlchemy tracks it weirdly
+    new_timers = dict(session.timers)
+    new_timers[new_timer_id] = timer_data
+    session.timers = new_timers
+    
+    # Bump state version
+    session.state_version = 13
+    
+    db.commit()
+    
+    resp_data = timer_data.copy()
+    resp_data["id"] = new_timer_id
+    
+    await publish_event(session_id, "timer.created", {"timer": resp_data})
+    
+    return resp_data
+
+@router.post("/session/{session_id}/timers/{timer_id}/action", response_model=TimerResponse)
+async def session_timer_action(
+    session_id: str,
+    timer_id: str,
+    body: TimerActionRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    if timer_id not in session.timers:
+        raise HTTPException(404, "Timer not found")
+        
+    timer = session.timers[timer_id].copy() # Copy for mutation
+
+    # COMPAT: Ensure created_at exists for legacy timers
+    if "created_at" not in timer:
+        # Use session start or now as fallback
+        fallback_time = session.started_at.isoformat() if session.started_at else datetime.now(timezone.utc).isoformat() 
+        timer["created_at"] = fallback_time
+        updated = True
+
+    action = body.action
+    now = datetime.now(timezone.utc)
+    iso_now = now.isoformat()
+    
+    updated = False
+    
+    if action == "start":
+        # Fresh start or restart
+        timer["started_at"] = iso_now
+        timer["paused_at"] = None
+        timer["done_at"] = None
+        timer["deleted_at"] = None
+        timer["state"] = "running"
+        updated = True
+        
+    elif action == "pause":
+        if timer["state"] == "running":
+            timer["paused_at"] = iso_now
+            timer["state"] = "paused"
+            updated = True
+            
+    elif action == "resume":
+        if timer["state"] == "paused" and timer.get("paused_at"):
+            # Shift started_at forward by pause duration
+            paused_at_dt = datetime.fromisoformat(timer["paused_at"])
+            pause_duration = (now - paused_at_dt).total_seconds()
+            
+            if timer.get("started_at"):
+                start_dt = datetime.fromisoformat(timer["started_at"])
+                new_start = start_dt + timedelta(seconds=pause_duration)
+                timer["started_at"] = new_start.isoformat()
+            
+            timer["paused_at"] = None
+            timer["state"] = "running"
+            updated = True
+            
+    elif action == "done":
+        timer["done_at"] = iso_now
+        timer["state"] = "done"
+        updated = True
+        
+    elif action == "delete":
+        timer["deleted_at"] = iso_now
+        # Soft delete, kept in dict but marked
+        updated = True
+
+    if updated:
+        timer["updated_at"] = iso_now
+        
+        # Save back
+        new_timers = dict(session.timers)
+        new_timers[timer_id] = timer
+        session.timers = new_timers
+        session.state_version = 13
+        session.last_interaction_at = now
+        
+        db.commit()
+        
+        resp_data = timer.copy()
+        resp_data["id"] = timer_id
+        
+        await publish_event(session_id, "timer.updated", {"timer": resp_data, "action": action})
+        
+        return resp_data
+        
+    # No op return
+    timer["id"] = timer_id
+    return timer
+
+@router.patch("/session/{session_id}/timers/{timer_id}", response_model=TimerResponse)
+async def patch_session_timer(
+    session_id: str,
+    timer_id: str,
+    body: TimerPatchRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    if timer_id not in session.timers:
+        raise HTTPException(404, "Timer not found")
+        
+    timer = session.timers[timer_id].copy()
+    now = datetime.now(timezone.utc).isoformat()
+    
+    if body.label is not None:
+        timer["label"] = body.label
+    if body.duration_s is not None:
+        timer["duration_sec"] = body.duration_s
+    if body.step_index is not None:
+        timer["step_index"] = body.step_index
+        
+    timer["updated_at"] = now
+    
+    new_timers = dict(session.timers)
+    new_timers[timer_id] = timer
+    session.timers = new_timers
+    session.state_version = 13
+    
+    db.commit()
+    
+    resp_data = timer.copy()
+    resp_data["id"] = timer_id
+    
+    await publish_event(session_id, "timer.updated", {"timer": resp_data})
+    
+    return resp_data
+
+@router.get("/session/{session_id}/next", response_model=CookNextResponse)
+def get_session_next(
+    session_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    recipe = db.query(Recipe).filter_by(id=session.recipe_id, workspace_id=workspace.id).first()
+    if not recipe:
+        raise HTTPException(404, "Recipe not found")
+
+    # Current state
+    current_idx = session.current_step_index
+    step_checks = session.step_checks or {}
+    timers = session.timers or {}
+    
+    # Filter active timers (exclude deleted)
+    active_timers = {k: v for k, v in timers.items() if not v.get("deleted_at")}
+
+    # Get current step
+    current_step = next((s for s in recipe.steps if s.step_index == current_idx), None)
+    
+    actions = []
+    reason = "Ready for next instruction"
+    
+    # Heuristics
+    
+    # 1. Checklist
+    if current_step and current_step.bullets:
+        checks_key = str(current_idx)
+        checks = step_checks.get(checks_key, {})
+        checked_count = len(checks)
+        
+        total_bullets = len(current_step.bullets)
+        if checked_count < total_bullets:
+             actions.append(CookNextAction(
+                 type="mark_step_done",
+                 label=f"Mark Step {current_idx + 1} complete",
+                 step_idx=current_idx
+             ))
+             reason = "Step checklist incomplete"
+             return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+
+    # 2. Timers
+    # Check if there is a timer for this step that is created but not started
+    step_timers = [
+        {"id": k, **v} 
+        for k, v in active_timers.items() 
+        if v.get("step_index") == current_idx
+    ]
+    
+    pending_timer = next((t for t in step_timers if t.get("state") == "created"), None)
+    if pending_timer:
+        actions.append(CookNextAction(
+            type="start_timer",
+            label=f"Start: {pending_timer.get('label')}",
+            timer_id=pending_timer.get("id")
+        ))
+        reason = "Timer ready but not started"
+        return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+
+    # 3. Create Timer suggestion
+    # If no timer exists for this step, but step has minutes_est
+    if current_step and current_step.minutes_est and not step_timers:
+        duration_s = current_step.minutes_est * 60
+        actions.append(CookNextAction(
+             type="create_timer",
+             label=f"Start {current_step.minutes_est} min timer",
+             duration_s=duration_s,
+             step_idx=current_idx
+        ))
+        reason = "Cooking time estimated for this step"
+        return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+
+    # 4. Next Step
+    next_step_idx = current_idx + 1
+    next_step = next((s for s in recipe.steps if s.step_index == next_step_idx), None)
+    
+    if next_step:
+        actions.append(CookNextAction(
+            type="go_to_step",
+            label=f"Continue to Step {next_step_idx + 1}",
+            step_idx=next_step_idx
+        ))
+        reason = "Step complete"
+        return CookNextResponse(suggested_step_idx=next_step_idx, actions=actions, reason=reason)
+        
+    # 5. Connect to Finish
+    actions.append(CookNextAction(
+        type="complete_session",
+        label="Complete Cooking",
+        step_idx=current_idx
+    ))
+    reason = "Recipe complete"
+    
+    return CookNextResponse(suggested_step_idx=current_idx, actions=actions, reason=reason)
+
+@router.get("/session/{session_id}/events")
+async def stream_session_events(
+    session_id: str,
+    workspace: Workspace = Depends(get_workspace),
+    db: Session = Depends(get_db)
+):
+    """Subscribe to real-time session events (v13+)."""
+    # Verify session access
+    session = db.query(CookSession).filter_by(id=session_id, workspace_id=workspace.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    async def event_generator():
+        pubsub = await subscribe_session(session_id)
+        try:
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15.0)
+                if message:
+                    # Generic data payload - ensure it's SSE format
+                    data_str = message['data']
+                    # Redis returns bytes or string. If bytes, decode.
+                    if isinstance(data_str, bytes):
+                        data_str = data_str.decode('utf-8')
+                    yield f"data: {data_str}\n\n"
+                else:
+                    # Heartbeat
+                    payload = json.dumps({"type": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()})
+                    yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            await pubsub.close()
+        except Exception as e:
+            logger.error(f"SSE Error: {e}")
+            await pubsub.close()
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

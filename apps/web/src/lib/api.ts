@@ -14,7 +14,7 @@ export function newIdemKey() {
     return crypto.randomUUID();
   }
   // Fallback for older environments or non-secure contexts
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
@@ -60,14 +60,14 @@ export interface Workspace {
 }
 
 export interface RecipeNoteEntry {
-    id: string;
-    recipe_id: string;
-    session_id: string | null;
-    source: string;
-    title: string;
-    content_md: string;
-    created_at: string;
-    tags?: string[];
+  id: string;
+  recipe_id: string;
+  session_id: string | null;
+  source: string;
+  title: string;
+  content_md: string;
+  created_at: string;
+  tags?: string[];
 }
 
 export interface Recipe {
@@ -132,8 +132,10 @@ export async function apiGet<T>(path: string): Promise<T> {
     headers: getHeaders()
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `GET ${path} failed: ${res.status}`);
+    const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+    const error = new Error(errorData.detail || `GET ${path} failed: ${res.status}`);
+    (error as any).status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -150,8 +152,10 @@ export async function apiPost<T>(path: string, body?: unknown, options: { idempo
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `POST ${path} failed: ${res.status}`);
+    const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+    const error = new Error(errorData.detail || `POST ${path} failed: ${res.status}`);
+    (error as any).status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -163,8 +167,10 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `PATCH ${path} failed: ${res.status}`);
+    const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+    const error = new Error(errorData.detail || `PATCH ${path} failed: ${res.status}`);
+    (error as any).status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -175,8 +181,10 @@ export async function apiDelete<T>(path: string): Promise<T> {
     headers: getHeaders(),
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `DELETE ${path} failed: ${res.status}`);
+    const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+    const error = new Error(errorData.detail || `DELETE ${path} failed: ${res.status}`);
+    (error as any).status = res.status;
+    throw error;
   }
   // Some DELETE endpoints return empty body
   if (res.status === 204) return {} as T;
@@ -293,47 +301,47 @@ export interface PantryItem {
 // --- Autofill API ---
 
 export interface AutofillProposal {
-    proposal_id: string;
-    plan_entry_id: string;
-    date: string;
-    meal: string;
-    before?: {
-        recipe_id: string;
-        title: string;
-        time_minutes?: number;
-    };
-    after: {
-        recipe_id: string;
-        title: string;
-        time_minutes?: number;
-    };
-    score: number;
-    reasons: Array<{ kind: string; value: string | number }>;
+  proposal_id: string;
+  plan_entry_id: string;
+  date: string;
+  meal: string;
+  before?: {
+    recipe_id: string;
+    title: string;
+    time_minutes?: number;
+  };
+  after: {
+    recipe_id: string;
+    title: string;
+    time_minutes?: number;
+  };
+  score: number;
+  reasons: Array<{ kind: string; value: string | number }>;
 }
 
 export interface AutofillResponse {
-    week_start: string;
-    meta: {
-        use_soon_items: Array<{ name: string; expires_in_days: number }>;
-    };
-    proposals: AutofillProposal[];
+  week_start: string;
+  meta: {
+    use_soon_items: Array<{ name: string; expires_in_days: number }>;
+  };
+  proposals: AutofillProposal[];
 }
 
 export async function generateAutofillProposals(weekStart: string, options?: { strictVariety?: boolean }): Promise<AutofillResponse> {
-    return apiPost<AutofillResponse>(`/autofill/use-soon?week_start=${weekStart}`, {
-        days: 5,
-        max_swaps: 4,
-        slots: ["dinner"],
-        prefer_quick: true,
-        strict_variety: options?.strictVariety ?? false
-    });
+  return apiPost<AutofillResponse>(`/autofill/use-soon?week_start=${weekStart}`, {
+    days: 5,
+    max_swaps: 4,
+    slots: ["dinner"],
+    prefer_quick: true,
+    strict_variety: options?.strictVariety ?? false
+  });
 }
 
 export async function applyAutofillProposals(weekStart: string, changes: Array<{ plan_entry_id: string; recipe_id: string }>): Promise<{ applied: number }> {
-    return apiPost<{ applied: number }>("/autofill/use-soon/apply", {
-        week_start: weekStart,
-        changes
-    }, { idempotent: true });
+  return apiPost<{ applied: number }>("/autofill/use-soon/apply", {
+    week_start: weekStart,
+    changes
+  }, { idempotent: true });
 }
 
 // --- Pantry API ---
@@ -344,10 +352,10 @@ export type UpdatePantryItem = Partial<CreatePantryItem>;
 export async function fetchPantryItems(params?: { search?: string; useSoon?: boolean }): Promise<PantryItem[]> {
   const searchParams = new URLSearchParams();
   if (params?.search) searchParams.set("q", params.search);
-  
+
   if (params?.useSoon) {
-      // Use the specific endpoint for sorted results
-      return apiGet<PantryItem[]>("/pantry/use-soon?days=5");
+    // Use the specific endpoint for sorted results
+    return apiGet<PantryItem[]>("/pantry/use-soon?days=5");
   }
 
   return apiGet<PantryItem[]>(`/pantry/?${searchParams.toString()}`);
@@ -419,12 +427,12 @@ export interface GroceryList {
 
 export async function generateGroceryList(params: { recipeIds?: string[]; planId?: string; includeEntryIds?: string[] }): Promise<GroceryList> {
   // Response is { list: ..., meta: ... }
-  const res = await apiPost<GroceryGenerateResponse>("/grocery/generate", { 
-      recipe_ids: params.recipeIds || [], 
-      plan_id: params.planId,
-      include_entry_ids: params.includeEntryIds || []
+  const res = await apiPost<GroceryGenerateResponse>("/grocery/generate", {
+    recipe_ids: params.recipeIds || [],
+    plan_id: params.planId,
+    include_entry_ids: params.includeEntryIds || []
   }, { idempotent: true });
-  
+
   // Attach meta to list for uniform handling
   return {
     ...res.list,
@@ -453,7 +461,9 @@ export interface CookTimer {
   elapsed_sec: number;
   state: 'created' | 'running' | 'paused' | 'done';
   started_at: string | null;
+  paused_at?: string | null;
   step_index: number;
+  deleted_at?: string | null;
 }
 
 export interface CookSession {
@@ -472,9 +482,9 @@ export interface CookSession {
   steps_override?: RecipeStep[] | null;
   method_tradeoffs?: Record<string, any> | null;
   method_generated_at?: string | null;
-  
+
   // AdjustOnTheFly
-  adjustments_log?: any[]; 
+  adjustments_log?: any[];
 
   // Auto Step Detection
   auto_step_enabled: boolean;
@@ -533,13 +543,13 @@ export async function apiPatchSession(sessionId: string, patch: any): Promise<Co
 
 // --- Cook Adjust Types ---
 
-export type AdjustmentKind = 
-  | 'too_salty' 
-  | 'too_spicy' 
-  | 'too_thick' 
-  | 'too_thin' 
-  | 'burning' 
-  | 'no_browning' 
+export type AdjustmentKind =
+  | 'too_salty'
+  | 'too_spicy'
+  | 'too_thick'
+  | 'too_thin'
+  | 'burning'
+  | 'no_browning'
   | 'undercooked';
 
 export interface CookAdjustment {
@@ -581,7 +591,7 @@ export interface AdjustApplyRequest {
 // --- Endpoints ---
 
 export async function previewAdjustment(
-  sessionId: string, 
+  sessionId: string,
   req: AdjustPreviewRequest
 ): Promise<AdjustPreviewResponse> {
   return apiPost<AdjustPreviewResponse>(`/cook/session/${sessionId}/adjust/preview`, req, { idempotent: true });
@@ -641,4 +651,78 @@ export interface InsightsRequest {
 
 export async function fetchInsights(params: InsightsRequest): Promise<InsightsResponse> {
   return apiPost<InsightsResponse>("/insights/notes", params, { idempotent: true });
+}
+
+// --- V13 Timers ---
+
+export interface TimerResponse {
+  id: string;
+  client_id?: string;
+  label: string;
+  step_index: number;
+  duration_sec: number;
+  state: 'created' | 'running' | 'paused' | 'done';
+  created_at: string;
+  started_at?: string | null;
+  paused_at?: string | null;
+  done_at?: string | null;
+  deleted_at?: string | null;
+}
+
+export interface TimerCreateRequest {
+  client_id: string;
+  label: string;
+  step_index: number;
+  duration_s: number;
+}
+
+export interface TimerActionRequest {
+  action: 'start' | 'pause' | 'resume' | 'done' | 'delete';
+}
+
+export interface TimerPatchRequest {
+  label?: string;
+  duration_s?: number;
+  step_index?: number;
+}
+
+export async function cookTimerCreate(sessionId: string, payload: TimerCreateRequest): Promise<TimerResponse> {
+  return apiPost<TimerResponse>(`/cook/session/${sessionId}/timers`, payload, { idempotent: true });
+}
+
+export async function cookTimerAction(sessionId: string, timerId: string, payload: TimerActionRequest): Promise<TimerResponse> {
+  return await apiPost<TimerResponse>(`/cook/session/${sessionId}/timers/${timerId}/action`, payload, { idempotent: true });
+}
+
+export async function cookTimerPatch(sessionId: string, timerId: string, payload: TimerPatchRequest): Promise<TimerResponse> {
+  return apiPatch<TimerResponse>(`/cook/session/${sessionId}/timers/${timerId}`, payload);
+}
+
+// --- Cook Assist v13.1 ---
+
+export interface CookNextAction {
+  type: string; // go_to_step, start_timer, create_timer, mark_step_done, complete_session
+  label: string;
+  step_idx?: number;
+  timer_id?: string;
+  duration_s?: number;
+}
+
+export interface CookNextResponse {
+  suggested_step_idx: number;
+  actions: CookNextAction[];
+  reason: string;
+}
+
+export async function fetchCookNext(sessionId: string): Promise<CookNextResponse> {
+  return apiGet<CookNextResponse>(`/cook/session/${sessionId}/next`);
+}
+
+export function cookSessionEventsUrl(sessionId: string): string {
+  const base = API_BASE.replace(/\/$/, "");
+  return `${base}/cook/session/${sessionId}/events`;
+}
+
+export async function undoAdjustment(sessionId: string, adjustmentId: string): Promise<CookSession> {
+  return apiPost<CookSession>(`/cook/session/${sessionId}/adjust/undo`, { adjustment_id: adjustmentId }, { idempotent: true });
 }

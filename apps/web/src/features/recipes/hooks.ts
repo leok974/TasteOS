@@ -227,7 +227,15 @@ export function useSubstitute(options?: { onSuccess?: (data: any) => void }) {
 export function useAnalyzeMacros(options?: { onSuccess?: (data: any) => void }) {
     return useMutation({
         mutationFn: (recipeId: string) =>
-            apiPost<{ summary: string; calories: string }>('/ai/macros', { recipe_id: recipeId }),
+            apiPost<{
+                summary: string;
+                calories: string;
+                calories_range?: { min: number; max: number };
+                protein_range?: { min: number; max: number };
+                tags?: string[];
+                disclaimer?: string;
+                confidence?: string;
+            }>('/ai/macros', { recipe_id: recipeId }),
         onSuccess: options?.onSuccess,
     });
 }
@@ -253,13 +261,13 @@ export function useRecipeNotesSearch(recipeId: string, q: string, tags: string[]
             const params = new URLSearchParams();
             if (q) params.set('q', q);
             tags.forEach(t => params.append('tags', t));
-            
+
             // Re-use apiGet? It wraps fetch. Need to append query params.
             // Assuming apiGet handles full URL or we construct it.
             // apiGet typically takes path.
             const queryString = params.toString();
             const url = `/recipes/${recipeId}/notes/search?${queryString}`;
-            
+
             return apiGet<{ items: RecipeNoteEntry[], next_cursor?: string }>(url);
         },
         enabled: !!recipeId,
@@ -293,8 +301,8 @@ export function useRestoreRecipeNote() {
         mutationFn: ({ recipeId, noteId }: { recipeId: string; noteId: string }) =>
             apiPost<RecipeNoteEntry>(`/recipes/${recipeId}/notes/${noteId}/restore`, {}),
         onSuccess: (_data, { recipeId }) => {
-             queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
-             queryClient.invalidateQueries({ queryKey: ['recipe-notes-tags', recipeId] });
+            queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
+            queryClient.invalidateQueries({ queryKey: ['recipe-notes-tags', recipeId] });
         }
     });
 }

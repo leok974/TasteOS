@@ -265,6 +265,9 @@ class TimerState(BaseModel):
     elapsed_sec: int = 0
     state: str = "created"
     started_at: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
+    done_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
     step_index: int
     due_at: Optional[datetime] = None
     remaining_sec: Optional[int] = None
@@ -280,6 +283,7 @@ class SessionResponse(BaseModel):
     current_step_index: int
     step_checks: dict = {}
     timers: dict[str, TimerState] = {}
+    hands_free: Optional[dict] = None
     
     # Method Switching
     method_key: Optional[str] = None
@@ -311,6 +315,51 @@ class SessionPatchRequest(BaseModel):
     # Auto Step Configuration
     auto_step_enabled: Optional[bool] = None
     auto_step_mode: Optional[Literal["suggest", "auto_jump"]] = None
+
+# --- V13 Timers ---
+
+class TimerResponse(BaseModel):
+    id: str
+    client_id: Optional[str] = None
+    label: str
+    step_index: int
+    duration_sec: int
+    state: str  # created, running, paused, done
+    created_at: str
+    started_at: Optional[str] = None
+    paused_at: Optional[str] = None
+    done_at: Optional[str] = None
+    deleted_at: Optional[str] = None
+    remaining_sec: Optional[int] = None # For legacy compat or snapshot
+    
+    class Config:
+        from_attributes = True
+
+class TimerCreateRequest(BaseModel):
+    client_id: str
+    label: str
+    step_index: int
+    duration_s: int
+
+class TimerActionRequest(BaseModel):
+    action: Literal["start", "pause", "resume", "done", "delete"]
+
+class TimerPatchRequest(BaseModel):
+    label: Optional[str] = None
+    duration_s: Optional[int] = None
+    step_index: Optional[int] = None
+
+class CookNextAction(BaseModel):
+    type: str # go_to_step, start_timer, create_timer, mark_step_done
+    label: str
+    step_idx: Optional[int] = None
+    timer_id: Optional[str] = None
+    duration_s: Optional[int] = None
+
+class CookNextResponse(BaseModel):
+    suggested_step_idx: int
+    actions: list[CookNextAction]
+    reason: str
 
 class SessionSummaryResponse(BaseModel):
     session: dict

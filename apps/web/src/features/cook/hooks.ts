@@ -39,17 +39,29 @@ export interface CookSession {
     recipe_id: string;
     status: "active" | "completed" | "abandoned";
     started_at: string;
+    ended_at?: string | null; // Added
     servings_base: number;
     servings_target: number;
     current_step_index: number;
     step_checks: Record<string, Record<string, boolean>>; // {stepIndex: {bulletIndex: checked}}
     timers: Record<string, CookTimer>;
+    hands_free?: { enabled: boolean } | null; // Added
 
     // Method Switching
     method_key?: string | null;
     steps_override?: any[] | null; // using any[] or RecipeStep[]
     method_tradeoffs?: Record<string, any> | null;
     method_generated_at?: string | null;
+
+    // Adjust On The Fly
+    adjustments_log?: any[];
+
+    // Auto Step Detection
+    auto_step_enabled: boolean;
+    auto_step_mode?: 'suggest' | 'auto_jump';
+    auto_step_suggested_index?: number | null;
+    auto_step_confidence?: number | null;
+    auto_step_reason?: string | null;
 }
 
 export interface CookTimer {
@@ -63,6 +75,7 @@ export interface CookTimer {
     state: "created" | "running" | "paused" | "done";
     due_at?: string | null;
     remaining_sec?: number | null;
+    deleted_at?: string | null;
 }
 
 export interface AssistResponse {
@@ -191,12 +204,12 @@ export function useCookSessionEnd() {
             );
             // Invalidate history
             queryClient.invalidateQueries({ queryKey: ["session", data.id, "history"] });
-            
+
             // If abandoned, maybe clear active state? 
             // Existing logic seems to rely on session data updates.
             if (variables.action === 'abandon') {
-                 // Force refresh of active session to see it's gone/done
-                 queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+                // Force refresh of active session to see it's gone/done
+                queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
             }
         },
     });
@@ -235,26 +248,22 @@ export function useCookSessionEvents(sessionId: string | undefined) {
             evtSource = new EventSource(`${API_BASE}/cook/session/${sessionId}/events`);
 
             evtSource.onmessage = (e) => {
-                // Heartbeat or random message
-            };
-
-            evtSource.addEventListener("session", (e) => {
                 try {
                     const data = JSON.parse(e.data);
-                    // Update cache optimistically
-                    queryClient.setQueryData(
-                        ["cook-session", "active", data.recipe_id],
-                        data
-                    );
+
+                    // Throttle invalidation a bit? React Query handles dupes well.
+                    // Check type
+                    if (data.type === 'session_updated' || data.type === 'timer.updated' || data.type === 'timer.created' || data.type === 'check_step' || data.type === 'uncheck_step') {
+                        queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+                        queryClient.invalidateQueries({ queryKey: ["cook-next"] });
+                    }
                 } catch (err) {
-                    console.error("Failed to parse SSE session data", err);
+                    console.error("Failed to parse SSE data", err);
                 }
-            });
+            };
 
             evtSource.onerror = (e) => {
-                // console.error("SSE Error", e);
                 evtSource?.close();
-                // Retry after delay
                 retryTimer = setTimeout(connect, 3000);
             };
         };
@@ -266,6 +275,47 @@ export function useCookSessionEvents(sessionId: string | undefined) {
             clearTimeout(retryTimer);
         };
     }, [sessionId, queryClient]);
+}
+
+// --- V13 Timer Hooks ---
+
+import {
+    TimerCreateRequest, TimerActionRequest, TimerPatchRequest,
+    cookTimerCreate, cookTimerAction, cookTimerPatch,
+    fetchCookNext, CookNextResponse
+} from "@/lib/api";
+
+export function useCookTimerCreate() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ sessionId, payload }: { sessionId: string; payload: TimerCreateRequest }) =>
+            cookTimerCreate(sessionId, payload),
+        onSuccess: (_data, { sessionId }) => {
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+        }
+    });
+}
+
+export function useCookTimerAction() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ sessionId, timerId, payload }: { sessionId: string; timerId: string; payload: TimerActionRequest }) =>
+            cookTimerAction(sessionId, timerId, payload),
+        onSuccess: (_data, { sessionId }) => {
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+        }
+    });
+}
+
+export function useCookTimerPatch() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ sessionId, timerId, payload }: { sessionId: string; timerId: string; payload: TimerPatchRequest }) =>
+            cookTimerPatch(sessionId, timerId, payload),
+        onSuccess: (_data, { sessionId }) => {
+            queryClient.invalidateQueries({ queryKey: ["cook-session", "active"] });
+        }
+    });
 }
 
 // --- Method Switcher Hooks ---
@@ -351,15 +401,15 @@ export function useCookSessionWhy(sessionId: string | undefined, enabled: boolea
     return useQuery({
         queryKey: ["session", sessionId, "why"],
         queryFn: async () => {
-             if (!sessionId) return null;
-             return cookFetch<{
-                 suggested_step_index: number | null;
-                 confidence: number;
-                 reason: string | null;
-                 signals: any[];
-             }>(
-                 `/cook/session/${sessionId}/why`
-             );
+            if (!sessionId) return null;
+            return cookFetch<{
+                suggested_step_index: number | null;
+                confidence: number;
+                reason: string | null;
+                signals: any[];
+            }>(
+                `/cook/session/${sessionId}/why`
+            );
         },
         enabled: !!sessionId && enabled,
     });
@@ -396,7 +446,7 @@ export function useCookAdjustmentUndo(sessionId?: string) {
 export function useCookSessionComplete() {
     return useMutation({
         mutationFn: async (sessionId: string) => {
-             return cookFetch(`/cook/session/${sessionId}/complete`, { method: "POST" });
+            return cookFetch(`/cook/session/${sessionId}/complete`, { method: "POST" });
         }
     });
 }
@@ -422,8 +472,8 @@ export function useCookSummaryPolish() {
 
 export function useCookNotesPreview() {
     return useMutation({
-        mutationFn: async ({ sessionId, include, use_ai, style, freeform, polished_data }: { 
-            sessionId: string; 
+        mutationFn: async ({ sessionId, include, use_ai, style, freeform, polished_data }: {
+            sessionId: string;
             include: any;
             use_ai?: boolean;
             style?: string;
@@ -442,20 +492,31 @@ export function useCookNotesApply() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async ({ sessionId, recipeId, notes, create_entry = true }: { sessionId: string, recipeId: string, notes: string[], create_entry?: boolean }) => {
-             return cookFetch(`/cook/session/${sessionId}/notes/apply`, {
+            return cookFetch(`/cook/session/${sessionId}/notes/apply`, {
                 method: "POST",
-                body: JSON.stringify({ 
-                    recipe_id: recipeId, 
+                body: JSON.stringify({
+                    recipe_id: recipeId,
                     notes_append: notes,
-                    create_entry 
+                    create_entry
                 })
             });
         },
         onSuccess: (_data, { recipeId }) => {
             // Invalidate recipe notes to refresh history UI
-             queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
-             // Also invalidate recipe details for legacy notes
-             queryClient.invalidateQueries({ queryKey: ['recipes', 'detail', recipeId] });
+            queryClient.invalidateQueries({ queryKey: ['recipe-notes', recipeId] });
+            // Also invalidate recipe details for legacy notes
+            queryClient.invalidateQueries({ queryKey: ['recipes', 'detail', recipeId] });
         }
+    });
+}
+
+// --- Cook Assist v13.1 ---
+
+export function useCookNext(sessionId: string | null) {
+    return useQuery({
+        queryKey: ["cook-next", sessionId],
+        queryFn: () => sessionId ? fetchCookNext(sessionId) : Promise.reject("No session"),
+        enabled: !!sessionId,
+        refetchOnWindowFocus: true
     });
 }

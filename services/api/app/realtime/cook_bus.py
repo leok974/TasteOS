@@ -19,3 +19,10 @@ async def subscribe_session(session_id: str):
     pubsub = r.pubsub()
     await pubsub.subscribe(channel_for_session(session_id))
     return pubsub
+
+async def publish_event(session_id: str, event_type: str, data: dict):
+    r = await get_redis()
+    payload = {"type": event_type, "session_id": session_id, **data, "ts": datetime.now(timezone.utc).isoformat()}
+    await r.publish(channel_for_session(session_id), json.dumps(payload))
+
+from datetime import datetime, timezone

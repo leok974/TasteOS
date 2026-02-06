@@ -1,0 +1,117 @@
+{
+  "features": [
+    {
+      "name": "Note Insights & Patterns",
+      "ui_surface": "Plan Page (Workspace) & Recipe Detail (Recipe)",
+      "frontend_files": [
+        "apps/web/src/features/insights/InsightsCard.tsx",
+        "apps/web/src/features/insights/hooks.ts"
+      ],
+      "backend_endpoints": ["POST /api/insights/notes"],
+      "backend_files": [
+        "services/api/app/routers/insights.py",
+        "services/api/app/insights/generator.py"
+      ],
+      "provider": "Gemini",
+      "model": "gemini-3-flash-preview (configurable)",
+      "output_contract": "InsightsResponse (Pydantic)",
+      "cache": { "type": "redis", "ttl_s": "variable (via hash)" },
+      "status": "live",
+      "notes": "Uses google.generativeai (V1 SDK). Falls back to heuristic if API fails or AI_MODE=mock."
+    },
+    {
+      "name": "Cook Session Summary Polish",
+      "ui_surface": "Cook Session Summary -> 'Polish with AI' Toggle",
+      "frontend_files": [
+        "apps/web/src/features/cook/SessionSummary.tsx",
+        "apps/web/src/features/cook/hooks.ts"
+      ],
+      "backend_endpoints": ["POST /api/cook/summary/polish"],
+      "backend_files": [
+        "services/api/app/routers/cook.py",
+        "services/api/app/ai/summary.py"
+      ],
+      "provider": "Gemini",
+      "model": "gemini-3-flash-preview",
+      "output_contract": "PolishedSummary (Pydantic via response_schema)",
+      "cache": { "type": "none", "ttl_s": 0 },
+      "status": "live",
+      "notes": "Uses google.genai (V2 SDK). Uses 'heuristic-fallback' if client unavailable."
+    },
+    {
+      "name": "Recipe Image Generation",
+      "ui_surface": "Recipe Detail -> Generate Image Modal",
+      "frontend_files": [
+        "apps/web/src/features/recipes/IngestRecipeModal.tsx"
+      ],
+      "backend_endpoints": ["POST /api/recipes/{id}/image"],
+      "backend_files": [
+        "services/api/app/routers/recipes.py",
+        "services/api/app/worker.py",
+        "services/api/app/ai/gemini_image.py"
+      ],
+      "provider": "Gemini",
+      "model": "gemini-3-flash-image (or configured image model)",
+      "output_contract": "Image Bytes (Generates PNG)",
+      "cache": { "type": "db-persisted", "ttl_s": "infinite" },
+      "status": "live",
+      "notes": "Uses google.genai (V2 SDK). returns base64 or transparent pixel in mock mode."
+    },
+    {
+      "name": "Cook Adjustments",
+      "ui_surface": "Cook Mode -> Adjust Recipe",
+      "frontend_files": [
+        "apps/web/src/features/cook/AssistPanel.tsx",
+        "apps/web/src/features/cook/hooks.ts"
+      ],
+      "backend_endpoints": ["POST /api/cook/adjust"],
+      "backend_files": [
+        "services/api/app/routers/cook.py",
+        "services/api/app/services/cook_adjustments.py"
+      ],
+      "provider": "Gemini",
+      "model": "gemini-3-flash-preview",
+      "output_contract": "CookAdjustmentResponse (Pydantic)",
+      "cache": { "type": "redis", "ttl_s": 3600 },
+      "status": "live",
+      "notes": "Uses google.genai (V2 SDK)."
+    },
+    {
+      "name": "Recipe Nutrition Analysis (Analyze Macros)",
+      "ui_surface": "Recipe Detail -> 'Analyze' Button",
+      "frontend_files": [
+        "apps/web/src/app/recipes/[id]/RecipeDetailView.tsx",
+        "apps/web/src/features/recipes/hooks.ts"
+      ],
+      "backend_endpoints": ["POST /api/ai/macros"],
+      "backend_files": [
+        "services/api/app/routers/ai.py",
+        "services/api/app/services/ai_service.py"
+      ],
+      "provider": "Heuristic (Stub)",
+      "model": "N/A",
+      "output_contract": "MacroAnalysis (Pydantic)",
+      "cache": { "type": "none", "ttl_s": 0 },
+      "status": "stub",
+      "notes": "Explicitly mocked in AIService. Returns hardcoded data based on title keywords. Needs Gemini implementation."
+    },
+    {
+      "name": "Ingredient Substitutions",
+      "ui_surface": "Ingredient Row -> Substitute Action (Hypothetical/Found in hooks)",
+      "frontend_files": [
+        "apps/web/src/features/recipes/hooks.ts"
+      ],
+      "backend_endpoints": ["POST /api/ai/substitute"],
+      "backend_files": [
+        "services/api/app/routers/ai.py",
+        "services/api/app/services/ai_service.py"
+      ],
+      "provider": "Heuristic (Stub)",
+      "model": "N/A",
+      "output_contract": "SubstitutionSuggestion (Pydantic)",
+      "cache": { "type": "none", "ttl_s": 0 },
+      "status": "stub",
+      "notes": "Explicitly mocked in AIService. Returns minimal heuristic suggestions. Needs Gemini implementation."
+    }
+  ]
+}

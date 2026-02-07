@@ -38,6 +38,7 @@ from ..services.cook_assist_help import (
     CookStepHelpRequest, 
     CookStepHelpResponse
 )
+from ..services.cook_autoflow import cook_autoflow
 from ..ai.summary import polish_summary
 from ..services.variant_generator import variant_generator
 from ..services.cook_adjustments import generate_adjustment
@@ -57,7 +58,8 @@ from ..schemas import (
     PantryDecrementPreviewResponse, PantryDecrementApplyRequest,
     TimerResponse, TimerCreateRequest, TimerActionRequest, TimerPatchRequest,
     CookNextResponse, CookNextAction,
-    TimerSuggestion, TimerSuggestionResponse, TimerFromSuggestedRequest
+    TimerSuggestion, TimerSuggestionResponse, TimerFromSuggestedRequest,
+    AutoflowRequest, AutoflowResponse
 )
 from ..parsing.timers import generate_suggestions_for_step
 
@@ -815,6 +817,30 @@ async def get_step_help(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
+@router.post("/session/{session_id}/autoflow", response_model=AutoflowResponse)
+@limiter.limit("60/minute")
+async def get_cook_autoflow(
+    session_id: str,
+    req: AutoflowRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    """Get next best action suggestions for cooking session."""
+    session = db.query(CookSession).filter(
+        CookSession.id == session_id,
+        CookSession.workspace_id == workspace.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    recipe = db.query(Recipe).filter(Recipe.id == session.recipe_id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    return await cook_autoflow.get_next_best_action(session, recipe, req)
 
 @router.get("/session/{session_id}/events/recent", response_model=List[CookSessionEventOut])
 def get_session_events(

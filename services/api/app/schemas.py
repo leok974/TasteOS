@@ -281,6 +281,7 @@ class SessionResponse(BaseModel):
     servings_base: int
     servings_target: int
     current_step_index: int
+    state_version: int = 1
     step_checks: dict = {}
     timers: dict[str, TimerState] = {}
     hands_free: Optional[dict] = None
@@ -729,3 +730,39 @@ class UnitPrefsUpdate(BaseModel):
 
 class UserPrefsResponse(BaseModel):
     unit_prefs: UnitPrefs
+
+
+# --- Autoflow (v15.2.2) ---
+
+class AutoflowClientState(BaseModel):
+    checked_keys: list[str] = []
+    active_timer_ids: list[str] = []
+
+class AutoflowRequest(BaseModel):
+    step_index: int
+    mode: str = "quick"  # quick | deep
+    client_state: AutoflowClientState
+
+class AutoflowActionPayload(BaseModel):
+    # Flexible payload for different action types
+    minutes: Optional[int] = None
+    label: Optional[str] = None
+    step_index: Optional[int] = None
+    key: Optional[str] = None # For checks
+    value: Optional[bool] = None
+
+class AutoflowAction(BaseModel):
+    op: Literal["create_timer", "patch_session", "navigate_step", "open_help", "none"]
+    payload: dict = {}
+
+class AutoflowSuggestion(BaseModel):
+    type: str # start_timer | check_item | next_step | open_help | prep_next | safety | complete_step
+    label: str
+    action: AutoflowAction
+    confidence: Literal["high", "medium", "low"]
+    why: Optional[str] = None
+
+class AutoflowResponse(BaseModel):
+    suggestions: list[AutoflowSuggestion]
+    source: str # ai | heuristic
+    autoflow_id: str

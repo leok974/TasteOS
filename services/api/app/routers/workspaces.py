@@ -31,12 +31,12 @@ def generate_slug(name: str) -> str:
     slug = slug.strip('-')
     return slug or "workspace"
 
-@router.get("/", response_model=List[WorkspaceRead])
+@router.get("", response_model=List[WorkspaceRead])
 def list_workspaces(db: Session = Depends(get_db)):
     """List all workspaces sorted by creation date."""
     return db.query(Workspace).order_by(Workspace.created_at).all()
 
-@router.post("/", response_model=WorkspaceRead)
+@router.post("", response_model=WorkspaceRead)
 def create_workspace(
     data: WorkspaceCreate,
     db: Session = Depends(get_db)

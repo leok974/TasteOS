@@ -5,7 +5,9 @@
  */
 
 // Defaults to same-origin /api proxy to avoid CORS/mixed-content
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+// Forced to /api relative path to ensure browser can resolve it via Next.js proxy
+// even if env var suggests an internal docker URL
+export const API_BASE = "/api";
 
 function join(base: string, path: string) {
     const b = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -134,7 +136,9 @@ export interface SeedResponse {
 // --- API Functions ---
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`;
+  console.log(`[apiGet] Fetching ${url}`);
+  const res = await fetch(url, {
     cache: "no-store",
     headers: getHeaders()
   });

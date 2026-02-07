@@ -38,7 +38,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 
     const { data: workspaces } = useQuery({
         queryKey: ['workspaces'],
-        queryFn: () => apiGet<Workspace[]>('/workspaces/'),
+        queryFn: () => apiGet<Workspace[]>('/workspaces'),
     });
 
     // Auto-select first workspace if none selected
@@ -51,7 +51,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
     const selectedWorkspace = workspaces?.find(w => w.id === workspaceId) || workspaces?.[0];
 
     const createMutation = useMutation({
-        mutationFn: (name: string) => apiPost<Workspace>('/workspaces/', { name }),
+        mutationFn: (name: string) => apiPost<Workspace>('/workspaces', { name }),
         onSuccess: (newWs) => {
             queryClient.setQueryData(['workspaces'], (old: Workspace[] | undefined) => {
                 return old ? [...old, newWs] : [newWs];

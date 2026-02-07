@@ -29,8 +29,9 @@ async function cookFetch<T>(url: string, options?: RequestInit): Promise<T> {
     }
 
     // Force relative path /api for proxying
-    // See apps/web/src/lib/api.ts for the constant definition
-    const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+    // We hardcode this to /api to ensure we always go through the Next.js proxy
+    // which handles the resolution to the backend (whether localhost or api:8000)
+    const API_BASE = "/api"; 
     const fullUrl = join(API_BASE, url);
     console.log("[cookFetch]", { fullUrl });
 
@@ -82,6 +83,8 @@ export interface CookStepHelpResponse {
         seconds: number;
         rationale: string;
     } | null;
+    help_id: string;
+    ai_error?: string | null;
 }
 
 // --- Hooks ---

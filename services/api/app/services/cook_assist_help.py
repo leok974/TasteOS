@@ -66,6 +66,7 @@ class CookStepHelpResponse(BaseModel):
     source: Literal["ai", "heuristic"]
     timer_suggestion: Optional[TimerSuggestion] = None
     ai_error: Optional[str] = None
+    help_id: str
 
 class CookAssistHelpService:
     def __init__(self):
@@ -88,13 +89,10 @@ class CookAssistHelpService:
         if not recipe:
             raise ValueError("Recipe not found")
 
-        # 2. Check Rate Limit (TODO using Redis, skipping for now per instruction to prioritize logic)
-        # self._check_rate_limit(workspace_id)
-
-        # 3. Check Cache (TODO using Redis)
-        # cache_key = self._build_cache_key(...)
-        # cached = self._get_from_cache(cache_key)
-        # if cached: return cached
+        # Deterministic Help ID for Idempotency
+        # Use session state + step + question to key the help request
+        help_id_raw = f"{session.workspace_id}-{recipe.id}-{session.id}-{req.step_index}-{req.question}-{session.state_version}"
+        help_id = hashlib.sha1(help_id_raw.encode()).hexdigest()
 
         # 4. Build AI Context
         prompt = self._build_prompt(recipe, session, req, db)
@@ -116,9 +114,9 @@ class CookAssistHelpService:
 
         # 6. Fallback or Process AI result
         if ai_resp:
-            return self._format_ai_response(ai_resp)
+            return self._format_ai_response(ai_resp, help_id)
         
-        return self._generate_heuristic_fallback(req, ai_error=last_error)
+        return self._generate_heuristic_fallback(req, help_id, ai_error=last_error)
 
     def _build_prompt(self, recipe: Recipe, session: CookSession, req: CookStepHelpRequest, db: Session) -> str:
         # Get current and previous step
@@ -148,23 +146,37 @@ class CookAssistHelpService:
         ingredients_text = ""
         if recipe.ingredients:
             lines = []
-            for ing in recipe.ingredients[:15]:
+            for ing in recipe.ingredients[:20]:
                 q = f"{ing.qty} " if ing.qty else ""
                 u = f"{ing.unit} " if ing.unit else ""
                 lines.append(f"- {q}{u}{ing.name}")
             ingredients_text = "\n".join(lines)
 
+        # Active Timers
+        active_timers_text = "None"
+        if session.timers:
+            # session.timers is a dict of timer_id -> timer_obj
+            # We want to show triggers running
+            running_t = [f"{t.get('label', 'Timer')}: {t.get('duration_sec')}s remaining" 
+                         for t in session.timers.values() if t.get('status') == 'running']
+            if running_t:
+                active_timers_text = "\n".join(running_t)
+
         context_str = f"""
         RECIPE: {recipe.title}
         
         CURRENT STEP ({idx}):
-        {current_step.title if current_step else 'Unknown'} - {json.dumps(current_step.bullets if current_step and current_step.bullets else [])}
+        {current_step.title if current_step else 'Unknown'} 
+        Bullets: {json.dumps(current_step.bullets if current_step and current_step.bullets else [])}
         
         PREVIOUS STEP:
         {prev_step.title if prev_step else 'None'} - {json.dumps(prev_step.bullets if prev_step and prev_step.bullets else [])}
         
-        INGREDIENTS (First 15):
+        INGREDIENTS:
         {ingredients_text}
+        
+        ACTIVE TIMERS:
+        {active_timers_text}
         
         USER NOTES HISTORY:
         {notes_text}
@@ -180,14 +192,14 @@ class CookAssistHelpService:
         Requirements:
         1. Be concise.
         2. If safety issues (undercooked chicken, allergens), flag them.
-        3. If a timer is implied ("simmer for 10 mins"), suggest it.
+        3. If a timer is implied ("simmer for 10 mins"), suggest it using the 'timer_suggestions' field.
         4. Use {req.options.temperature_unit if req.options else 'F'} for temps.
         
         Context Data:
         {context_str}
         """
 
-    def _format_ai_response(self, ai: CookStepHelpAIResponse) -> CookStepHelpResponse:
+    def _format_ai_response(self, ai: CookStepHelpAIResponse, help_id: str) -> CookStepHelpResponse:
         citations = []
         # Basic attribution logic - if referring to step, cite it. 
         # For now, generic citations as we don't have granular attribution from Gemini 2.0 Flash easily without more complex prompting.
@@ -203,10 +215,11 @@ class CookAssistHelpService:
             safety=ai.safety,
             citations=citations,
             source="ai",
-            timer_suggestion=timer_sugg
+            timer_suggestion=timer_sugg,
+            help_id=help_id
         )
 
-    def _generate_heuristic_fallback(self, req: CookStepHelpRequest, ai_error: Optional[str] = None) -> CookStepHelpResponse:
+    def _generate_heuristic_fallback(self, req: CookStepHelpRequest, help_id: str, ai_error: Optional[str] = None) -> CookStepHelpResponse:
         return CookStepHelpResponse(
             answer_md="I couldn't reach the AI assistant, but here are some general tips.",
             bullets=[
@@ -218,7 +231,8 @@ class CookAssistHelpService:
             safety=SafetyFlags(contains_food_safety=True, allergens=[]),
             citations=[HelpCitation(type="general", text="Heuristic fallback")],
             source="heuristic",
-            ai_error=ai_error
+            ai_error=ai_error,
+            help_id=help_id
         )
 
 cook_assist_help = CookAssistHelpService()

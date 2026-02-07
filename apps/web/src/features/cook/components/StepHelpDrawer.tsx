@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mic, Send, Sparkles, ChefHat, AlertTriangle, Clock } from 'lucide-react';
+import { X, Mic, Send, Sparkles, ChefHat, AlertTriangle, Clock, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,16 +17,22 @@ interface StepHelpDrawerProps {
 }
 
 const COMMON_QUESTIONS = [
-  "How do I know this is done?",
-  "What if it's too dry?",
-  "Can I skip this?",
-  "Substitute for this ingredient?",
-  "Why do I need to do this?"
+  "How do I know when this is done?",
+  "What should the texture be like?",
+  "Can I substitute any ingredients here?",
+  "Is there a faster way?",
+  "Any safety tips for this step?"
 ];
 
 export function StepHelpDrawer({ isOpen, onClose, sessionId, stepIndex, onAddTimer }: StepHelpDrawerProps) {
   const [question, setQuestion] = useState("");
   const [response, setResponse] = useState<CookStepHelpResponse | null>(null);
+  
+  // Reset state when stepping to a new step
+  useEffect(() => {
+    setResponse(null);
+    setQuestion("");
+  }, [stepIndex]);
   
   const helpMutation = useCookStepHelp(sessionId);
 
@@ -121,19 +127,29 @@ export function StepHelpDrawer({ isOpen, onClose, sessionId, stepIndex, onAddTim
                   <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     
                     {/* Source Badge */}
-                    <div className="flex items-center gap-2">
-                      <Badge variant={response.source === 'ai' ? 'default' : 'secondary'} className="text-[10px] uppercase tracking-wider">
-                         {response.source === 'ai' ? <Sparkles className="w-3 h-3 mr-1" /> : <ChefHat className="w-3 h-3 mr-1" />}
-                         {response.source === 'ai' ? 'Gemini AI' : 'Heuristic'}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        Confidence: {response.confidence}
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={response.source === 'ai' ? 'default' : 'secondary'} className="text-[10px] uppercase tracking-wider">
+                           {response.source === 'ai' ? <Sparkles className="w-3 h-3 mr-1" /> : <ChefHat className="w-3 h-3 mr-1" />}
+                           {response.source === 'ai' ? 'Gemini AI' : 'Heuristic'}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground capitalize">
+                          {response.confidence} confidence
+                        </span>
+                      </div>
+                      {response.help_id && (
+                          <span className="text-[10px] text-muted-foreground/50 font-mono" title={`Help ID: ${response.help_id}`}>
+                              #{response.help_id.substring(0, 6)}
+                          </span>
+                      )}
                     </div>
 
                     {/* Question Bubble */}
-                    <div className="bg-muted/50 p-3 rounded-lg text-sm italic border-l-2 border-primary">
-                      "{question}"
+                    <div className="bg-muted/50 p-3 rounded-lg text-sm italic border-l-2 border-primary flex justify-between items-start">
+                      <span>"{question}"</span>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary" onClick={() => setResponse(null)} title="Ask new question">
+                        <RefreshCw className="h-3 w-3" />
+                      </Button>
                     </div>
 
                     {/* Answer Bullets */}
@@ -182,6 +198,24 @@ export function StepHelpDrawer({ isOpen, onClose, sessionId, stepIndex, onAddTim
                             </p>
                         </div>
                     )}
+
+                    {/* Follow-up Suggestions (Always handy) */}
+                    <div className="pt-4 border-t mt-6">
+                        <p className="text-xs text-muted-foreground mb-2 font-medium">Ask something else:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {COMMON_QUESTIONS.slice(0, 3).map((q) => (
+                                <Button 
+                                    key={q} 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="rounded-full text-[10px] h-7"
+                                    onClick={() => handleSubmit(q)}
+                                >
+                                    {q}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
 
                   </div>
                 )}

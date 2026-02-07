@@ -125,6 +125,9 @@ class Recipe(Base):
         nullable=True
     )
     
+    # Source Hash for Seed Idempotency
+    source_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -275,10 +278,63 @@ class RecipeNoteEntry(Base):
     data_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{}')
 
     applied_to_recipe_notes: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="notes_history")
+
+class RecipeMacroEntry(Base):
+    """History of macro estimates for a recipe."""
+    __tablename__ = "recipe_macro_entries"
+    __table_args__ = (
+        Index("ix_recipe_macro_ws_recipe_created", "workspace_id", "recipe_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(String(36), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Macros (Min/Max ranges)
+    calories_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    calories_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    protein_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    protein_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    carbs_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    carbs_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fat_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fat_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Metadata
+    source: Mapped[str] = mapped_column(String(50), nullable=False)  # user | ai | heuristic
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    context_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class RecipeTipEntry(Base):
+    """History of tips (storage, reheating) for a recipe."""
+    __tablename__ = "recipe_tip_entries"
+    __table_args__ = (
+        Index("ix_recipe_tips_ws_recipe_scope_created", "workspace_id", "recipe_id", "scope", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(String(36), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    scope: Mapped[str] = mapped_column(String(50), nullable=False)  # storage | reheat
+    tips_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default='[]')
+    food_safety_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default='[]')
+
+    # Metadata
+    source: Mapped[str] = mapped_column(String(50), nullable=False)  # user | ai
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    context_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="notes_history")
+    recipe: Mapped["Recipe"] = relationship("Recipe")
     workspace: Mapped["Workspace"] = relationship("Workspace")
 
 

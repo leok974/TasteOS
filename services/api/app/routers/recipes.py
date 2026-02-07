@@ -1099,3 +1099,197 @@ def get_recipe_learnings(
         common_tags=top_tags,
         recent_recaps=recent_recaps
     )
+
+# --- Recipe Macro & Tips Endpoints (v15.3.2) ---
+
+from ..models import RecipeMacroEntry, RecipeTipEntry
+from ..schemas import RecipeMacroEntryOut, RecipeMacroEntryCreate, RecipeTipEntryOut, RecipeTipEntryCreate, EstimateMacrosRequest, EstimateTipsRequest
+from ..services.ai_service import ai_service
+from datetime import datetime
+
+# Helper re-defined just for this block scope if needed, but we can reuse if imports allowed
+# But wait, local imports `from ..models` works.
+
+def _get_recipe_for_insights(db: Session, recipe_id: str, workspace_id: str) -> Recipe:
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace_id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return recipe
+
+@router.get("/recipes/{recipe_id}/macros", response_model=Optional[RecipeMacroEntryOut])
+def get_recipe_macros(
+    recipe_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get the latest saved macro estimation for a recipe."""
+    entry = db.query(RecipeMacroEntry).filter(
+        RecipeMacroEntry.recipe_id == recipe_id,
+        RecipeMacroEntry.workspace_id == workspace.id
+    ).order_by(desc(RecipeMacroEntry.created_at)).first()
+    
+    return entry
+
+
+@router.post("/recipes/{recipe_id}/macros", response_model=RecipeMacroEntryOut)
+def save_recipe_macros(
+    recipe_id: str,
+    payload: RecipeMacroEntryCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Save user-defined macro estimation."""
+    _get_recipe_for_insights(db, recipe_id, workspace.id)
+    
+    entry = RecipeMacroEntry(
+        workspace_id=workspace.id,
+        recipe_id=recipe_id,
+        source=payload.source, 
+        calories_min=payload.calories_min,
+        calories_max=payload.calories_max,
+        protein_min=payload.protein_min,
+        protein_max=payload.protein_max,
+        carbs_min=payload.carbs_min,
+        carbs_max=payload.carbs_max,
+        fat_min=payload.fat_min,
+        fat_max=payload.fat_max,
+        confidence=1.0 if payload.source == "user" else None 
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.post("/recipes/{recipe_id}/macros/estimate", response_model=RecipeMacroEntryOut)
+def estimate_recipe_macros(
+    recipe_id: str,
+    request: EstimateMacrosRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Estimate macros using AI or heuristics, optionally persisting."""
+    recipe = _get_recipe_for_insights(db, recipe_id, workspace.id)
+    
+    # Use existing AI service
+    ingredients_list = [f"{i.qty or ''} {i.unit or ''} {i.name}" for i in recipe.ingredients]
+    result = ai_service.summarize_macros(recipe.title, ingredients_list)
+    
+    # Map result to model
+    calories_min = result.calories_range.get("min")
+    calories_max = result.calories_range.get("max")
+    protein_min = result.protein_range.get("min") if result.protein_range else None
+    protein_max = result.protein_range.get("max") if result.protein_range else None
+    
+    # Construct entry (even if not persisted, we format it as one)
+    # Note: Using current time for transient, but handled by schema
+    
+    entry_data = {
+        "workspace_id": workspace.id,
+        "recipe_id": recipe_id,
+        "source": result.source,
+        "calories_min": calories_min,
+        "calories_max": calories_max,
+        "protein_min": protein_min,
+        "protein_max": protein_max,
+        "confidence": 0.9 if result.confidence == "high" else 0.5, 
+        "model": "gemini-pro" if result.source == "ai" else "heuristic",
+    }
+    
+    if request.persist:
+        entry = RecipeMacroEntry(**entry_data)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+    else:
+        # Return transient object
+        return RecipeMacroEntryOut(
+            id="transient",
+            recipe_id=recipe_id,
+            created_at=datetime.utcnow(),
+            **entry_data
+        )
+
+
+@router.get("/recipes/{recipe_id}/tips", response_model=Optional[RecipeTipEntryOut])
+def get_recipe_tips(
+    recipe_id: str,
+    scope: str = Query(..., pattern="^(storage|reheat)$"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get the latest saved tips for a recipe scope."""
+    entry = db.query(RecipeTipEntry).filter(
+        RecipeTipEntry.recipe_id == recipe_id,
+        RecipeTipEntry.workspace_id == workspace.id,
+        RecipeTipEntry.scope == scope
+    ).order_by(desc(RecipeTipEntry.created_at)).first()
+    
+    return entry
+
+
+@router.post("/recipes/{recipe_id}/tips", response_model=RecipeTipEntryOut)
+def save_recipe_tips(
+    recipe_id: str,
+    payload: RecipeTipEntryCreate,
+    scope: str = Query(..., pattern="^(storage|reheat)$"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Save user-defined tips."""
+    _get_recipe_for_insights(db, recipe_id, workspace.id)
+    
+    entry = RecipeTipEntry(
+        workspace_id=workspace.id,
+        recipe_id=recipe_id,
+        scope=scope,
+        source=payload.source,
+        tips_json=payload.tips_json,
+        food_safety_json=payload.food_safety_json,
+        confidence=1.0 if payload.source == "user" else None
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.post("/recipes/{recipe_id}/tips/estimate", response_model=RecipeTipEntryOut)
+def estimate_recipe_tips(
+    recipe_id: str,
+    request: EstimateTipsRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Estimate tips using AI, optionally persisting."""
+    recipe = _get_recipe_for_insights(db, recipe_id, workspace.id)
+    
+    ingredients_list = [f"{i.qty or ''} {i.unit or ''} {i.name}" for i in recipe.ingredients]
+    result = ai_service.generate_tips(recipe.title, ingredients_list, request.scope)
+    
+    entry_data = {
+        "workspace_id": workspace.id,
+        "recipe_id": recipe_id,
+        "scope": request.scope,
+        "tips_json": result.tips,
+        "food_safety_json": result.food_safety,
+        "source": result.source,
+        "confidence": 0.9 if result.confidence == "high" else 0.5,
+        "model": "gemini-pro" if result.source == "ai" else "heuristic",
+    }
+    
+    if request.persist:
+        entry = RecipeTipEntry(**entry_data)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+    else:
+        return RecipeTipEntryOut(
+            id="transient",
+            recipe_id=recipe_id,
+            created_at=datetime.utcnow(),
+            **entry_data
+        )
+

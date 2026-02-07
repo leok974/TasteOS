@@ -29,6 +29,7 @@ import { RecipeNotesHistory } from '@/features/recipes/RecipeNotesHistory';
 import { InsightsCard } from '@/features/insights/InsightsCard';
 import { IngredientRow } from '@/features/recipes/components/IngredientRow';
 import { RecipeLearningsCard } from '@/features/recipes/components/RecipeLearningsCard';
+import { RecipeInfoDrawer } from '@/features/recipes/components/RecipeInfoDrawer';
 import { useUnitPrefs } from '@/features/preferences/hooks';
 import {
     useCookSessionStart,
@@ -344,7 +345,10 @@ export function RecipeDetailView({ recipeId }: { recipeId: string }) {
                         <span className="text-sm font-semibold">Back to recipes</span>
                     </button>
 
-                    <ShareRecipeModal recipeId={recipeId} />
+                    <div className="flex items-center gap-2">
+                        <RecipeInfoDrawer recipeId={recipeId} />
+                        <ShareRecipeModal recipeId={recipeId} />
+                    </div>
                 </div>
 
                 {/* Hero */}

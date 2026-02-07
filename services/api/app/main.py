@@ -16,6 +16,7 @@ from .routers.plan import router as plan_router
 from .routers.ai import router as ai_router
 from .routers.cook import router as cook_router
 from .routers.dev import router as dev_router
+from .routers.dev_recipes_seed import router as dev_seed_router
 from .routers.workspaces import router as workspaces_router
 from .routers.insights import router as insights_router
 from .routers.units import router as units_router
@@ -56,5 +57,15 @@ app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(cook_router, prefix="/api", tags=["cook"])
 app.include_router(units_router, prefix="/api/units", tags=["units"])
 app.include_router(prefs_router, prefix="/api", tags=["prefs"])
-app.include_router(density_router, prefix="/api/units", tags=["units"])
+
+@app.get("/debug_routes")
+def get_routes():
+    import json
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "path"):
+            routes.append(f"{route.methods} {route.path}")
+    return {"routes": routes}
+
 app.include_router(dev_router, prefix="/api", tags=["dev"])
+app.include_router(dev_seed_router, prefix="/api", tags=["dev"])

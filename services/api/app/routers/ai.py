@@ -7,9 +7,11 @@ from sqlalchemy import select
 from app.db import get_db
 from app.deps import get_workspace
 from app.models import Workspace, PantryItem
-from app.services.ai_service import ai_service, SubstitutionSuggestion
+from app.services.ai_service import ai_service, SubstitutionSuggestion, RecipeTipsResponse
 from app.core.ai_client import ai_client
 from app.settings import settings as app_settings
+from app.infra.redis_client import get_redis
+import json
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -27,6 +29,64 @@ def get_ai_status():
 class SubstituteRequest(BaseModel):
     ingredient: str
     context: Optional[str] = None
+
+class RecipeTipsRequest(BaseModel):
+    recipe_id: str
+    scope: str # storage | reheat
+
+@router.post("/recipe_tips", response_model=RecipeTipsResponse)
+async def get_recipe_tips(
+    payload: RecipeTipsRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Get AI-generated tips for storage or reheating (Cached)."""
+    # 1. Fetch recipe to ensure existence and getting update time for cache key
+    from app.models import Recipe
+    recipe = db.query(Recipe).filter(Recipe.id == payload.recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # 2. Key Construction
+    # Use content hash since updated_at is not available/reliable for this model yet
+    import hashlib
+    ingredients = [i.name for i in recipe.ingredients] if recipe.ingredients else []
+    content_sig = f"{recipe.title}|{','.join(sorted(ingredients))}"
+    content_hash = hashlib.md5(content_sig.encode()).hexdigest()
+    
+    cache_key = f"tips:{workspace.id}:{recipe.id}:{payload.scope}:{content_hash}"
+    
+    # 3. Check Cache
+    try:
+        redis = await get_redis()
+        cached = await redis.get(cache_key)
+        if cached:
+            return RecipeTipsResponse.model_validate_json(cached)
+    except Exception as e:
+        # Redis fail shouldn't block feature
+        pass
+        
+    # 4. Generate
+    # ingredients already extracted above
+    
+    # Using sync service method (ai_client inside is sync? ai_client.generate_json code is usually sync or async?)
+    # ai_service.generate_tips is sync in my implementation above.
+    # ideally we should await if network IO.
+    # But for now, we run it.
+    result = ai_service.generate_tips(
+        recipe_title=recipe.title,
+        ingredients=ingredients,
+        scope=payload.scope
+    )
+    
+    # 5. Cache Result (30 days)
+    try:
+        if result and redis:
+            await redis.set(cache_key, result.model_dump_json(), ex=60*60*24*30)
+    except Exception:
+        pass
+        
+    return result
 
 @router.post("/substitute", response_model=SubstitutionSuggestion)
 def suggest_substitute(

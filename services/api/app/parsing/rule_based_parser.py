@@ -4,22 +4,31 @@ from .parser import RecipeParser, ParsedRecipe, ParsedIngredient, ParsedStep
 
 class RuleBasedParser(RecipeParser):
     def parse(self, text: str, hints: dict = None) -> ParsedRecipe:
+        # 1. Normalize emojis (quick win)
+        text = self._normalize_emojis(text)
+        
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         title = self._extract_title(lines)
         ingredients = self._extract_ingredients(lines)
         steps = self._extract_steps(lines)
         
-        # Cleanup ingredients from steps if they overlap
-        # (Simple heuristic: if a step looks exactly like an ingredient, ignore it? 
-        # Actually usually sections are separated)
-
         return ParsedRecipe(
             title=title,
             ingredients=ingredients,
             steps=steps,
             servings=hints.get('servings') if hints else None
         )
+
+    def _normalize_emojis(self, text: str) -> str:
+        replacements = {
+            '1️⃣': '1.', '2️⃣': '2.', '3️⃣': '3.', '4️⃣': '4.', '5️⃣': '5.',
+            '6️⃣': '6.', '7️⃣': '7.', '8️⃣': '8.', '9️⃣': '9.', '0️⃣': '0.',
+            '🔟': '10.'
+        }
+        for k, v in replacements.items():
+            text = text.replace(k, v)
+        return text
 
     def _extract_title(self, lines: List[str]) -> str:
         # Assume first non-empty line is title, unless it's "Ingredients" or "Instructions"
@@ -81,11 +90,26 @@ class RuleBasedParser(RecipeParser):
         
         headers = ['instruction', 'direction', 'method', 'preparation', 'steps', 'how to make']
         
-        current_step_lines = []
+        # Regex patterns for step headers
+        step_patterns = [
+            r'^\s*(\d{1,2})[.)]\s+(.+)$',                 # 1. or 1)
+            r'^\s*(\d{1,2})\s*[-:]\s+(.+)$',              # 1 - or 1:
+            r'^\s*(?i:step)\s*(\d{1,2})[:\-.)]?\s+(.+)$', # Step 1:
+        ]
         
         for line in lines:
             lower = line.lower()
-            if any(h in lower for h in headers) and len(line) < 30:
+            
+            # Check if line matches a step pattern to avoid treating it as a header
+            # (e.g. "Step 1: Preparation" containing "preparation" header keyword)
+            is_step_candidate = False
+            for pat in step_patterns:
+                if re.match(pat, line):
+                    is_step_candidate = True
+                    break
+
+            # Header detection
+            if not is_step_candidate and any(h in lower for h in headers) and len(line) < 30:
                 in_section = True
                 continue
             
@@ -94,24 +118,29 @@ class RuleBasedParser(RecipeParser):
                 if 'notes' in lower and len(line) < 10:
                     break
                 
-                # Detect new step (numbered or just new paragraphs?)
-                # If starts with number dot: "1. Mix content"
-                match = re.match(r'^(\d+)\.\s+(.*)', line)
-                if match:
-                    # Save previous step if exists
-                    if current_step_lines:
-                        steps.append(self._create_step(len(steps), current_step_lines))
-                        current_step_lines = []
+                # Try matching valid step headers
+                matched = None
+                for pat in step_patterns:
+                    m = re.match(pat, line)
+                    if m:
+                        matched = m
+                        break
+                
+                if matched:
+                    # New step found
+                    # Group 2 comes from simple patterns, Group 2 also from Step pattern
+                    # Pattern 1: (d) (text) -> 2
+                    # Pattern 2: (d) (text) -> 2
+                    # Pattern 3: (d) (text) -> 2
+                    title = matched.group(2)
                     
                     steps.append(ParsedStep(
                         step_index=len(steps),
-                        title=match.group(2)[:200], # Cap length for title
-                        bullets=[match.group(2)]
+                        title=title[:200],
+                        bullets=[title] # Treat the line as the first bullet too often handy
                     ))
                 else:
-                    # Append to current step logic or create new if big gap?
-                    # For now, let's just treat non-numbered lines as bullets of a step if we have one,
-                    # or new steps if we don't have numbering.
+                    # Append to previous step if exists
                     if steps:
                         steps[-1].bullets.append(line)
                     else:

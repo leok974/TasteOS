@@ -327,3 +327,116 @@ export function useRestoreRecipeNote() {
     });
 }
 
+// --- Macros & Tips (v15.3.2) ---
+
+export interface RecipeMacroEntry {
+  id: string;
+  recipe_id: string;
+  created_at: string;
+  calories_min: number | null;
+  calories_max: number | null;
+  protein_min: number | null;
+  protein_max: number | null;
+  carbs_min: number | null;
+  carbs_max: number | null;
+  fat_min: number | null;
+  fat_max: number | null;
+  source: string;
+  confidence: number | null;
+  model: string | null;
+}
+
+export interface RecipeTipEntry {
+  id: string;
+  recipe_id: string;
+  created_at: string;
+  scope: string;
+  tips_json: string[];
+  food_safety_json: string[];
+  source: string;
+  confidence: number | null;
+  model: string | null;
+}
+
+export interface AIStatus {
+    ai_mode: string;
+    model_text: string;
+    has_api_key: boolean;
+}
+
+export function useAIStatus() {
+    return useQuery({
+        queryKey: ['ai-status'],
+        queryFn: () => apiGet<AIStatus>('/ai/status'),
+        staleTime: 1000 * 60 * 5, 
+    });
+}
+
+
+export function useRecipeMacros(recipeId: string) {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ['recipe-macros', recipeId, { workspaceId }],
+        queryFn: () => apiGet<RecipeMacroEntry | null>(`/recipes/${recipeId}/macros`),
+        enabled: !!recipeId,
+    });
+}
+
+export function useEstimateMacros() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, persist }: { recipeId: string; persist: boolean }) =>
+            apiPost<RecipeMacroEntry>(`/recipes/${recipeId}/macros/estimate`, { persist }),
+        onSuccess: (data, { recipeId, persist }) => {
+            if (persist) {
+                queryClient.invalidateQueries({ queryKey: ['recipe-macros', recipeId] });
+            }
+        }
+    });
+}
+
+export function useSaveMacros() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, data }: { recipeId: string; data: Partial<RecipeMacroEntry> }) =>
+            apiPost<RecipeMacroEntry>(`/recipes/${recipeId}/macros`, data),
+        onSuccess: (_, { recipeId }) => {
+            queryClient.invalidateQueries({ queryKey: ['recipe-macros', recipeId] });
+        },
+    });
+}
+
+export function useRecipeTipsDB(recipeId: string, scope: "storage" | "reheat") {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: ['recipe-tips-db', recipeId, scope, { workspaceId }],
+        queryFn: () => apiGet<RecipeTipEntry | null>(`/recipes/${recipeId}/tips?scope=${scope}`),
+        enabled: !!recipeId,
+    });
+}
+
+export function useEstimateTips() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, scope, persist }: { recipeId: string; scope: string; persist: boolean }) =>
+            apiPost<RecipeTipEntry>(`/recipes/${recipeId}/tips/estimate`, { scope, persist }),
+        onSuccess: (data, { recipeId, scope, persist }) => {
+            if (persist) {
+                queryClient.invalidateQueries({ queryKey: ['recipe-tips-db', recipeId, scope] });
+            }
+        }
+    });
+}
+
+export function useSaveTips() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ recipeId, scope, data }: { recipeId: string; scope: string; data: Partial<RecipeTipEntry> }) =>
+            apiPost<RecipeTipEntry>(`/recipes/${recipeId}/tips?scope=${scope}`, data),
+        onSuccess: (_, { recipeId, scope }) => {
+            queryClient.invalidateQueries({ queryKey: ['recipe-tips-db', recipeId, scope] });
+        },
+    });
+}
+
+

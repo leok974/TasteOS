@@ -24,9 +24,73 @@ class MacroAnalysis(BaseModel):
     tags: List[str] = []
     source: str = "ai" # ai or heuristic
 
+class RecipeTipsResponse(BaseModel):
+    tips: List[str]
+    food_safety: List[str]
+    confidence: str  # high, medium, low
+    source: str = "ai"  # ai or heuristic
+
 class AIService:
     def __init__(self):
         self.mode = settings.ai_mode
+
+    def generate_tips(self, recipe_title: str, ingredients: List[str], scope: str) -> RecipeTipsResponse:
+        """Generate storage or reheat tips for a recipe."""
+        if self.mode == "mock":
+            return self._mock_tips(scope)
+
+        context_text = f"Recipe: {recipe_title}\nIngredients: {', '.join(ingredients)}"
+        prompt_scope = "storage and shelf life" if scope == "storage" else "reheating instructions"
+        
+        prompt = f"""
+        You are a food safety expert. Provide 3 specific {prompt_scope} tips for this recipe.
+        Also provide 1 important food safety warning if applicable.
+        
+        {context_text}
+        
+        Return JSON format:
+        {{
+            "tips": ["tip1", "tip2", "tip3"],
+            "food_safety": ["warning1"],
+            "confidence": "high"
+        }}
+        """
+        
+        try:
+            response = ai_client.generate_json(prompt, response_model=RecipeTipsResponse)
+            if response:
+                return response
+            raise Exception("Empty AI response")
+        except Exception as e:
+            logger.error(f"AI Tips failed: {e}")
+            return self._heuristic_tips(scope)
+
+    def _mock_tips(self, scope: str) -> RecipeTipsResponse:
+        return self._heuristic_tips(scope, source="mock")
+
+    def _heuristic_tips(self, scope: str, source: str = "heuristic") -> RecipeTipsResponse:
+        if scope == "storage":
+            return RecipeTipsResponse(
+                tips=[
+                    "Store in an airtight container in the refrigerator.",
+                    "Consume within 3-4 days.",
+                    "Label with datestamp."
+                ],
+                food_safety=["Do not leave at room temperature for > 2 hours."],
+                confidence="medium",
+                source=source
+            )
+        else: # reheat
+            return RecipeTipsResponse(
+                tips=[
+                    "Reheat until internal temperature reaches 165°F (74°C).",
+                    "Add a splash of water or broth to restore moisture.",
+                    "Cover while reheating to prevent drying out."
+                ],
+                food_safety=["Ensure food is steaming hot throughout."],
+                confidence="medium",
+                source=source
+            )
 
     def suggest_substitute(self, ingredient: str, pantry_items: List[str], context: str) -> SubstitutionSuggestion:
         if self.mode == "mock":

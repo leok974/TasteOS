@@ -431,6 +431,76 @@ class RecipeNoteEntryCreate(BaseModel):
     session_id: Optional[str] = None
     apply_to_recipe_notes: bool = True
 
+
+# --- Recipe Macro Entries ---
+
+class RecipeMacroEntryOut(BaseModel):
+    id: str
+    recipe_id: str
+    created_at: datetime
+    
+    # Macros
+    calories_min: Optional[int] = None
+    calories_max: Optional[int] = None
+    protein_min: Optional[int] = None
+    protein_max: Optional[int] = None
+    carbs_min: Optional[int] = None
+    carbs_max: Optional[int] = None
+    fat_min: Optional[int] = None
+    fat_max: Optional[int] = None
+
+    source: str
+    confidence: Optional[float] = None
+    model: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class RecipeMacroEntryCreate(BaseModel):
+    # Macros
+    calories_min: Optional[int] = None
+    calories_max: Optional[int] = None
+    protein_min: Optional[int] = None
+    protein_max: Optional[int] = None
+    carbs_min: Optional[int] = None
+    carbs_max: Optional[int] = None
+    fat_min: Optional[int] = None
+    fat_max: Optional[int] = None
+
+    source: str = "user"
+
+
+class EstimateMacrosRequest(BaseModel):
+    persist: bool = False
+
+
+# --- Recipe Tip Entries ---
+
+class RecipeTipEntryOut(BaseModel):
+    id: str
+    recipe_id: str
+    created_at: datetime
+    scope: str
+    tips_json: list[str]
+    food_safety_json: list[str]
+    source: str
+    confidence: Optional[float] = None
+    model: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class RecipeTipEntryCreate(BaseModel):
+    tips_json: list[str] = []
+    food_safety_json: list[str] = []
+    source: str = "user"
+
+
+class EstimateTipsRequest(BaseModel):
+    scope: str  # storage | reheat
+    persist: bool = False
+
+
 # --- Method Switcher Schemas ---
 
 class MethodOption(BaseModel):

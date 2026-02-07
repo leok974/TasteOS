@@ -1,15 +1,14 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { NextUpPanel } from '../NextUpPanel';
-import { useCookNext, useCookSessionPatch, useCookTimerAction, useCookTimerCreate, useCookSessionEnd } from '../../hooks';
+import { useCookAutoflow, useCookSessionPatch, useCookTimerAction, useCookTimerCreate, useCookSessionEnd } from '../../hooks';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../hooks', () => ({
-    useCookNext: vi.fn(),
+    useCookAutoflow: vi.fn(),
     useCookSessionPatch: vi.fn(),
     useCookTimerCreate: vi.fn(),
     useCookTimerAction: vi.fn(),
-    useCookSessionEnd: vi.fn(),
-    CookSession: {}
+    useCookSessionEnd: vi.fn()
 }));
 
 const mockSession = {
@@ -17,6 +16,7 @@ const mockSession = {
     recipe_id: 'r1',
     status: 'active',
     current_step_index: 0,
+    state_version: 1,
     step_checks: {},
     timers: {}
 };
@@ -42,33 +42,53 @@ describe('NextUpPanel', () => {
     });
 
     it('renders suggested action', () => {
-        (useCookNext as any).mockReturnValue({
+        (useCookAutoflow as any).mockReturnValue({
             data: {
-                suggested_step_idx: 0,
-                actions: [{ type: 'mark_step_done', label: 'Mark Done', step_idx: 0 }],
-                reason: 'Test'
+                suggestions: [{ 
+                    type: 'complete_step', 
+                    label: 'Complete Step', 
+                    confidence: 'high',
+                    action: {
+                        op: 'patch_session',
+                        payload: { mark_step_complete: 0 }
+                    }
+                }],
+                source: 'heuristic',
+                autoflow_id: 'test-1'
             },
             isLoading: false
         });
 
         render(<NextUpPanel session={mockSession as any} recipe={mockRecipe} />);
-        expect(screen.getByText('Mark Done')).toBeDefined();
+        expect(screen.getByText('Complete Step')).toBeDefined();
     });
 
-    it('triggers go_to_step action', () => {
-        (useCookNext as any).mockReturnValue({
+    it('triggers create_timer action', () => {
+        (useCookAutoflow as any).mockReturnValue({
             data: {
-                actions: [{ type: 'go_to_step', label: 'Next Step', step_idx: 1 }],
-                reason: 'Test'
+                suggestions: [{ 
+                    type: 'start_timer', 
+                    label: 'Start 10m Boil',
+                    confidence: 'high',
+                    action: {
+                        op: 'create_timer',
+                        payload: { duration_s: 600 }
+                    }
+                }],
+                source: 'heuristic',
+                autoflow_id: 'test-2'
             },
             isLoading: false
         });
 
         render(<NextUpPanel session={mockSession as any} recipe={mockRecipe} />);
-        fireEvent.click(screen.getByTestId('next-action-go_to_step'));
-        expect(mockPatch).toHaveBeenCalledWith({
+        fireEvent.click(screen.getByTestId('autoflow-action-start_timer'));
+        expect(mockCreateTimer).toHaveBeenCalledWith(expect.objectContaining({
             sessionId: 's1',
-            patch: { current_step_index: 1 }
-        });
+            payload: expect.objectContaining({
+                duration_sec: 600,
+                label: 'Start 10m Boil'
+            })
+        }));
     });
 });

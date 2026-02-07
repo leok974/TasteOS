@@ -1,8 +1,6 @@
 import React from 'react';
-import { useCookNext, useCookSessionPatch, useCookTimerCreate, useCookTimerAction, useCookSessionEnd } from '../hooks';
-import { CookSession } from '../hooks';
-import type { CookNextAction } from '../../../lib/api';
-import { CheckCircle2, ChevronRight, Play, Timer, ArrowRight, Check } from 'lucide-react';
+import { useCookAutoflow, useCookSessionPatch, useCookTimerCreate, useCookTimerAction, useCookSessionEnd, CookSession, AutoflowSuggestion } from '../hooks';
+import { CheckCircle2, ChevronRight, Play, Timer, ArrowRight, Check, HelpCircle } from 'lucide-react';
 import { cn } from '../../../lib/cn';
 
 interface NextUpPanelProps {
@@ -12,69 +10,112 @@ interface NextUpPanelProps {
 }
 
 export function NextUpPanel({ session, recipe, className }: NextUpPanelProps) {
-    const { data: nextUp, isLoading } = useCookNext(session.id);
+    // Extract state for Autoflow
+    const checkedKeys = React.useMemo(() => {
+        const keys: string[] = [];
+        if (session.step_checks) {
+            Object.entries(session.step_checks).forEach(([stepIdx, bullets]) => {
+                Object.entries(bullets).forEach(([bulletIdx, checked]) => {
+                    if (checked) keys.push(`${stepIdx}-${bulletIdx}`);
+                });
+            });
+        }
+        return keys;
+    }, [session.step_checks]);
+
+    const activeTimerIds = React.useMemo(() => {
+        return Object.entries(session.timers || {})
+            .filter(([_, t]) => t.state === 'running' || t.state === 'paused')
+            .map(([id, _]) => id);
+    }, [session.timers]);
+
+    // Use Autoflow v15.2.2
+    const { data: autoflow, isLoading } = useCookAutoflow(
+        session.id,
+        session.current_step_index,
+        session.state_version || 0,
+        checkedKeys,
+        activeTimerIds
+    );
+
     const { mutate: patchSession } = useCookSessionPatch();
     const { mutate: createTimer } = useCookTimerCreate();
     const { mutate: timerAction } = useCookTimerAction();
     const { mutate: endSession } = useCookSessionEnd();
 
-    if (isLoading || !nextUp || !nextUp.actions.length) return null;
+    if (isLoading || !autoflow || !autoflow.suggestions.length) return null;
 
-    const handleAction = (action: CookNextAction) => {
-        if (action.type === 'go_to_step') {
-            if (typeof action.step_idx === 'number') {
-                 patchSession({
-                     sessionId: session.id,
-                     patch: { current_step_index: action.step_idx }
-                 });
-            }
-        } 
-        else if (action.type === 'start_timer') {
-            if (action.timer_id) {
-                timerAction({ 
-                    sessionId: session.id, 
-                    timerId: action.timer_id, 
-                    payload: { action: 'start' } 
-                });
-            }
-        }
-        else if (action.type === 'create_timer') {
-             const clientId = `next-up-${Date.now()}`;
-             createTimer({
-                 sessionId: session.id,
-                 payload: {
-                     client_id: clientId,
-                     label: action.label,
-                     duration_s: action.duration_s || 60,
-                     step_index: action.step_idx || session.current_step_index
-                 }
-             });
-        }
-        else if (action.type === 'mark_step_done') {
-            if (typeof action.step_idx === 'number') {
-                // v13.3: Use atomic server-side completion if possible
-                patchSession({
+    const topSuggestion = autoflow.suggestions[0];
+    const secondarySuggestions = autoflow.suggestions.slice(1);
+
+    const handleSuggestion = (suggestion: AutoflowSuggestion) => {
+        const { op, payload } = suggestion.action;
+
+        switch (op) {
+            case 'create_timer':
+                const clientId = `autoflow-${Date.now()}`;
+                // Adapt payload key names
+                createTimer({
                     sessionId: session.id,
-                    patch: {
-                        mark_step_complete: action.step_idx
+                    payload: {
+                        client_id: clientId,
+                        label: suggestion.label,
+                        duration_sec: payload.duration_s || payload.duration_sec || 60,
+                        step_index: session.current_step_index,
+                        ...payload
                     }
                 });
-            }
-        }
-        else if (action.type === 'complete_session') {
-            endSession({ sessionId: session.id, action: 'complete' });
+                break;
+                
+            case 'navigate_step':
+                if (typeof payload.step_index === 'number') {
+                    patchSession({
+                        sessionId: session.id,
+                        patch: { current_step_index: payload.step_index }
+                    });
+                }
+                break;
+
+            case 'patch_session':
+                // Check if we are completing a step
+                if (payload.mark_step_complete) {
+                    patchSession({
+                        sessionId: session.id,
+                        patch: { mark_step_complete: payload.mark_step_complete }
+                    });
+                }
+                // Check if we are ending session
+                else if (payload.status === 'completed') {
+                    endSession({ sessionId: session.id, action: 'complete' });
+                }
+                else {
+                    // Generic patch fallthrough
+                    patchSession({
+                        sessionId: session.id,
+                        patch: payload
+                    });
+                }
+                break;
+
+            case 'open_help':
+                console.log("Open Help requested", payload);
+                break;
+                
+            case 'none':
+            default:
+                break;
         }
     };
     
-    // Icon mapping
-    const getIcon = (type: string) => {
+    const getIcon = (type: AutoflowSuggestion['type']) => {
         switch(type) {
-            case 'go_to_step': return <ArrowRight className="w-4 h-4" />;
+            case 'next_step': return <ArrowRight className="w-4 h-4" />;
             case 'start_timer': return <Play className="w-4 h-4" />;
-            case 'create_timer': return <Timer className="w-4 h-4" />;
-            case 'mark_step_done': return <Check className="w-4 h-4" />;
-            case 'complete_session': return <CheckCircle2 className="w-4 h-4" />;
-            default: return null;
+            case 'check_item': return <Check className="w-4 h-4" />;
+            case 'complete_step': return <CheckCircle2 className="w-4 h-4" />;
+            case 'open_help': return <HelpCircle className="w-4 h-4" />;
+            case 'prep_next': return <ChevronRight className="w-4 h-4" />;
+            default: return <Play className="w-4 h-4" />;
         }
     };
 
@@ -86,28 +127,41 @@ export function NextUpPanel({ session, recipe, className }: NextUpPanelProps) {
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                      <div className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1">
-                        ✨ Next Up
-                        {nextUp.reason && <span className="font-normal normal-case text-amber-600/70 ml-1">• {nextUp.reason}</span>}
+                        ✨ Next Up {autoflow.source === 'ai' && <span className="text-[10px] text-amber-500 bg-amber-100 px-1 rounded">AI</span>}
                      </div>
                 </div>
                 
-                <div className="flex flex-wrap gap-2">
-                    {nextUp.actions.slice(0, 3).map((action, i) => (
+                <div className="flex flex-wrap gap-2 items-center">
+                    {/* Primary Action */}
+                    <button
+                        onClick={() => handleSuggestion(topSuggestion)}
+                        className={cn(
+                            "rounded-full px-4 py-2 text-sm font-bold flex items-center gap-2 transition-all active:scale-95 shadow-sm",
+                            "bg-amber-500 hover:bg-amber-600 text-white"
+                        )}
+                        data-testid={`autoflow-action-${topSuggestion.type}`}
+                    >
+                        {getIcon(topSuggestion.type)}
+                        <span>{topSuggestion.label}</span>
+                    </button>
+
+                    {/* Secondary Actions */}
+                    {secondarySuggestions.map((suggestion, i) => (
                         <button
                             key={i}
-                            onClick={() => handleAction(action)}
-                            className={cn(
-                                "rounded-full px-3 py-1.5 text-sm font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-sm",
-                                i === 0 
-                                    ? "bg-amber-500 hover:bg-amber-600 text-white" 
-                                    : "bg-white hover:bg-gray-50 text-gray-700 border border-gray-200"
-                            )}
-                            data-testid={`next-action-${action.type}`}
+                            onClick={() => handleSuggestion(suggestion)}
+                            className="rounded-full px-3 py-1.5 text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 bg-white hover:bg-gray-50 text-gray-600 border border-gray-200"
                         >
-                            {getIcon(action.type)}
-                            <span>{action.label}</span>
+                            {getIcon(suggestion.type)}
+                            <span>{suggestion.label}</span>
                         </button>
                     ))}
+                    
+                    {topSuggestion.why && (
+                        <span className="text-xs text-amber-800/60 italic ml-1 max-w-[200px] truncate">
+                            {topSuggestion.why}
+                        </span>
+                    )}
                 </div>
             </div>
         </div>

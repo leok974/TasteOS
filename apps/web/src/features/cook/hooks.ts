@@ -110,6 +110,7 @@ export interface CookSession {
     servings_base: number;
     servings_target: number;
     current_step_index: number;
+    state_version?: number; // Added v15.2.2
     step_checks: Record<string, Record<string, boolean>>; // {stepIndex: {bulletIndex: checked}}
     timers: Record<string, CookTimer>;
     hands_free?: { enabled: boolean } | null; // Added
@@ -663,5 +664,53 @@ export function useTimerCreateFromSuggestions() {
             // Refresh session to show new timers
             queryClient.invalidateQueries({ queryKey: ["cook-session", sessionId] });
         }
+    });
+}
+
+// --- Autoflow (v15.2.2) ---
+
+export interface AutoflowSuggestion {
+    type: "start_timer" | "check_item" | "next_step" | "open_help" | "prep_next" | "safety" | "complete_step";
+    label: string;
+    action: {
+        op: "create_timer" | "patch_session" | "navigate_step" | "open_help" | "none";
+        payload: Record<string, any>;
+    };
+    confidence: "high" | "medium" | "low";
+    why?: string;
+}
+
+export interface AutoflowResponse {
+    suggestions: AutoflowSuggestion[];
+    source: "ai" | "heuristic";
+    autoflow_id: string;
+}
+
+export function useCookAutoflow(
+    sessionId: string | undefined, 
+    stepIndex: number, 
+    // We pass these to force refetch when they change
+    sessionStateVersion: number,
+    checkedKeys: string[], 
+    activeTimerIds: string[]
+) {
+    return useQuery({
+        queryKey: ['cook-autoflow', sessionId, stepIndex, sessionStateVersion, checkedKeys.join(','), activeTimerIds.join(',')],
+        queryFn: async () => {
+            if (!sessionId) return null;
+            return cookFetch<AutoflowResponse>(`/cook/session/${sessionId}/autoflow`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    step_index: stepIndex,
+                    mode: 'quick',
+                    client_state: {
+                        checked_keys: checkedKeys,
+                        active_timer_ids: activeTimerIds
+                    }
+                })
+            });
+        },
+        enabled: !!sessionId,
+        staleTime: 5000, // Short stale time but heuristic is fast
     });
 }

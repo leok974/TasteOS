@@ -6,14 +6,68 @@ from sqlalchemy import select
 
 from app.db import get_db
 from app.deps import get_workspace
-from app.models import Workspace, PantryItem
-from app.services.ai_service import ai_service, SubstitutionSuggestion, RecipeTipsResponse
+from app.models import Workspace, PantryItem, Recipe, RecipeVariant
+from app.services.ai_service import ai_service, SubstitutionSuggestion, RecipeTipsResponse, RecipeDraftResponse
 from app.core.ai_client import ai_client
 from app.settings import settings as app_settings
 from app.infra.redis_client import get_redis
+from app.schemas import ChefChatRequest, ChefChatResponse
 import json
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+# --- Chef Chat (Craft Recipes) ---
+
+@router.post("/chef/chat", response_model=ChefChatResponse)
+def chef_chat(
+    payload: ChefChatRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """
+    Generate or refine a recipe via chat (Gemini).
+    Returns a structured draft and assistant text.
+    """
+    context_data = None
+    
+    # If refining, fetch context
+    if payload.mode == "refine" and payload.recipe_id:
+        recipe = db.query(Recipe).filter(Recipe.id == payload.recipe_id, Recipe.workspace_id == workspace.id).first()
+        if not recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found for refinement")
+            
+        # Prioritize specified variant, then active, then migration logic
+        variant = None
+        if payload.base_variant_id:
+             variant = db.query(RecipeVariant).filter(RecipeVariant.id == payload.base_variant_id).first()
+        elif recipe.active_variant_id:
+             variant = db.query(RecipeVariant).filter(RecipeVariant.id == recipe.active_variant_id).first()
+             
+        if variant:
+            context_data = variant.content_json
+        else:
+             # Fallback to current recipe state if no variants exist yet (unlikely after migration)
+             context_data = {
+                 "title": recipe.title,
+                 "ingredients": [{"item": i.name, "qty": float(i.qty) if i.qty else None, "unit": i.unit} for i in recipe.ingredients],
+                 "steps": [s.title for s in recipe.steps] # simplified
+             }
+
+    # Generate
+    draft = ai_service.generate_recipe_draft(
+        message=payload.message,
+        context_recipe=context_data
+    )
+    
+    return ChefChatResponse(
+        assistant_message=draft.assistant_message,
+        recipe_draft=draft.recipe_json.model_dump(by_alias=True),
+        suggested_label=draft.suggested_label,
+        source="ai",
+        model_id="gemini-flash", # Placeholder, ideally from config
+        thread_id=payload.thread_id
+    )
+
 
 @router.get("/status")
 def get_ai_status():

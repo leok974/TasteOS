@@ -147,6 +147,19 @@ class Recipe(Base):
     active_image: Mapped[Optional["RecipeImage"]] = relationship(
         "RecipeImage", foreign_keys="[Recipe.active_image_id]", post_update=True
     )
+    
+    # Variants (Versioning)
+    active_variant_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("recipe_variants.id", ondelete="SET NULL", use_alter=True),
+        nullable=True
+    )
+    variants: Mapped[list["RecipeVariant"]] = relationship(
+        "RecipeVariant", back_populates="recipe", foreign_keys="[RecipeVariant.recipe_id]"
+    )
+    active_variant: Mapped[Optional["RecipeVariant"]] = relationship(
+        "RecipeVariant", foreign_keys="[Recipe.active_variant_id]", post_update=True
+    )
+
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(
         "RecipeIngredient", back_populates="recipe", cascade="all, delete-orphan"
     )
@@ -240,6 +253,30 @@ class RecipeImage(Base):
     )
 
 
+class RecipeVariant(Base):
+    """Immutable version of a recipe (structured draft)."""
+    __tablename__ = "recipe_variants"
+    __table_args__ = (
+        Index("ix_recipe_variants_recipe_id", "recipe_id"),
+        Index("ix_recipe_variants_workspace_id", "workspace_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(String(36), ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    
+    label: Mapped[str] = mapped_column(String(100), nullable=False) # e.g. "Original", "Spicy v2"
+    content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False, server_default='ai') # ai | user
+    model_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Relationships
+    recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="variants", foreign_keys=[recipe_id])
+
+
 
 class RecipeNoteEntry(Base):
     """History of notes added to a recipe."""
@@ -278,6 +315,8 @@ class RecipeNoteEntry(Base):
     data_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{}')
 
     applied_to_recipe_notes: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="notes_history")
 

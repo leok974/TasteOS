@@ -18,12 +18,19 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, joinedload
 
+from ..core.text import clean_md, parse_step_text, normalize_step_structure
+
 from app.infra.idempotency import idempotency_precheck, idempotency_store_result, idempotency_clear_key
 
 from ..db import get_db
 from ..deps import get_workspace
-from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry, RecipeIngredient
-from ..schemas import RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, RecipeNoteEntryOut, RecipeNoteEntryCreate, RecipeLearningsResponse
+from ..models import Recipe, RecipeStep, RecipeImage, Workspace, RecipeNoteEntry, RecipeIngredient, RecipeVariant
+from ..schemas import (
+    RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, 
+    RecipeNoteEntryOut, RecipeNoteEntryCreate, RecipeLearningsResponse, 
+    RecipeVariantCreate, RecipeVariantOut,
+    RecipeFromDraftCreate, RecipeVariantFromDraftCreate, SetActiveVariantRequest
+)
 from ..settings import settings
 from ..services.events import log_event
 from sqlalchemy import desc, select, func, text, or_
@@ -66,6 +73,12 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
         steps=recipe.steps,
         ingredients=recipe.ingredients,
         images=recipe.images,
+        
+        # Versioning
+        active_variant_id=recipe.active_variant_id,
+        active_variant=recipe.active_variant,
+        variants=recipe.variants,
+        
         primary_image_url=primary_url,
         created_at=recipe.created_at,
     )
@@ -90,6 +103,8 @@ def _recipe_to_list_out(recipe: Recipe) -> RecipeListOut:
         time_minutes=recipe.time_minutes,
         primary_image_url=primary_url,
         created_at=recipe.created_at,
+        active_variant_id=recipe.active_variant_id,
+        variants=recipe.variants,
     )
 
 
@@ -104,7 +119,10 @@ def list_recipes(
     """List recipes in the current workspace."""
     query = (
         db.query(Recipe)
-        .options(joinedload(Recipe.active_image))  # Optimized: only load active
+        .options(
+            joinedload(Recipe.active_image),
+            joinedload(Recipe.variants)
+        )
         .filter(Recipe.workspace_id == workspace.id)
     )
     
@@ -139,7 +157,7 @@ def create_recipe(
     recipe = Recipe(
         id=str(uuid.uuid4()),
         workspace_id=workspace.id,
-        title=payload.title,
+        title=clean_md(payload.title),
         cuisines=payload.cuisines or [],
         tags=payload.tags or [],
         servings=payload.servings,
@@ -149,17 +167,51 @@ def create_recipe(
     db.add(recipe)
     
     # Add steps if provided
+    steps_list = []
     if payload.steps:
         for step_data in payload.steps:
             step = RecipeStep(
                 id=str(uuid.uuid4()),
                 recipe_id=recipe.id,
                 step_index=step_data.step_index,
-                title=step_data.title,
-                bullets=step_data.bullets or [],
+                title=clean_md(step_data.title),
+                bullets=[clean_md(b) for b in (step_data.bullets or [])],
                 minutes_est=step_data.minutes_est,
             )
             db.add(step)
+            
+            # Format for variant
+            txt = ""
+            if step_data.title and not step_data.title.lower().startswith("step"):
+                txt += f"**{step_data.title}:** "
+            if step_data.bullets:
+                txt += " ".join(step_data.bullets)
+            elif not txt:
+                txt = step_data.title
+            steps_list.append(txt)
+
+    # Create Initial "Original" Variant
+    content_json = {
+        "title": payload.title,
+        "yield": {"servings": payload.servings or 4, "unit": "servings"},
+        "tags": payload.tags or [],
+        "ingredients": [], # No ingredients supported in Create payload yet
+        "steps": steps_list,
+        "notes": payload.notes
+    }
+
+    variant = RecipeVariant(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        recipe_id=recipe.id,
+        label="Original",
+        content_json=content_json,
+        created_by="user"
+    )
+    db.add(variant)
+    
+    # Set active pointer
+    recipe.active_variant_id = variant.active_variant_id = variant.id # Set on object
     
     db.commit()
     db.refresh(recipe)
@@ -171,7 +223,9 @@ def create_recipe(
             joinedload(Recipe.steps), 
             joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
-            joinedload(Recipe.active_image)
+            joinedload(Recipe.active_image),
+            joinedload(Recipe.variants),
+            joinedload(Recipe.active_variant)
         )
         .filter(Recipe.id == recipe.id)
         .first()
@@ -193,7 +247,9 @@ def get_recipe(
             joinedload(Recipe.steps), 
             joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
-            joinedload(Recipe.active_image)
+            joinedload(Recipe.active_image),
+            joinedload(Recipe.variants),
+            joinedload(Recipe.active_variant)
         )
         .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
         .first()
@@ -219,7 +275,9 @@ def update_recipe(
             joinedload(Recipe.steps), 
             joinedload(Recipe.ingredients),
             joinedload(Recipe.images),
-            joinedload(Recipe.active_image)
+            joinedload(Recipe.active_image),
+            joinedload(Recipe.variants),
+            joinedload(Recipe.active_variant)
         )
         .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
         .first()
@@ -1252,6 +1310,258 @@ def save_recipe_tips(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    return entry
+
+
+# --- Variant Management ---
+
+@router.post("/recipes/from-draft", response_model=RecipeOut)
+def create_recipe_from_draft(
+    payload: RecipeFromDraftCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Create a new recipe from an AI draft."""
+    # PROBE 1: Confirm endpoint reachability
+    # raise HTTPException(status_code=418, detail="PROBE: save handler reached") (Completed)
+    
+    # Sanitize draft content before saving
+    if payload.draft.title:
+        payload.draft.title = clean_md(payload.draft.title)
+    
+    # Sanitize and normalize steps
+    if payload.draft.steps:
+        sanitized_steps = []
+        for s in payload.draft.steps:
+            if isinstance(s, str):
+                sanitized_steps.append(clean_md(s))
+            else:
+                # Assuming object with title/bullets
+                if s.title: s.title = clean_md(s.title)
+                if s.bullets: s.bullets = [clean_md(b) for b in s.bullets]
+                sanitized_steps.append(s)
+        payload.draft.steps = sanitized_steps
+
+    # 1. Create Recipe container
+    recipe = Recipe(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        title=payload.draft.title or "Untitled Recipe",
+    )
+    db.add(recipe)
+    db.flush()
+
+    # 1.5. Populate Recipe Steps
+    if payload.draft.steps:
+        logger.info(f"Saving {len(payload.draft.steps)} steps for recipe {recipe.id}")
+        
+        # We must update the payload in-place so the Variant content_json is also normalized.
+        # Otherwise the Variant stores the "bad" draft while the RecipeStep table gets the "good" data.
+        normalized_steps_for_variant = []
+
+        for idx, step_item in enumerate(payload.draft.steps):
+            # 1. Access Raw Data
+            if isinstance(step_item, str):
+                parsed = parse_step_text(step_item) # Legacy fallback
+                raw_title = parsed["title"]
+                raw_bullets = parsed["bullets"]
+                minutes = 5
+            else:
+                raw_title = step_item.title
+                raw_bullets = step_item.bullets
+                minutes = step_item.minutes or 5
+
+            # 2. Universal Normalization (Strict)
+            normalized = normalize_step_structure(raw_title, raw_bullets)
+            
+            final_title = normalized["title"]
+            final_bullets = normalized["bullets"]
+
+            # HARD GATE: Reject empty bullets
+            if not final_bullets:
+                logger.error(f"Step {idx+1} rejected due to empty bullets after normalization.")
+                raise HTTPException(
+                    status_code=422, 
+                    detail=f"Step {idx+1} could not be normalized to a valid checklist (empty bullets)."
+                )
+
+            # Update the DB Row
+            step = RecipeStep(
+                id=str(uuid.uuid4()),
+                recipe_id=recipe.id,
+                step_index=idx + 1,
+                title=final_title,
+                bullets=final_bullets,
+                minutes_est=minutes,
+            )
+            db.add(step)
+
+            # Update the Draft Payload for Variant storage
+            # We reconstruct the step object (DraftStepIn usually)
+            # Since DraftStepIn is a pydantic model, we can just replace the list item?
+            # Or simpler: we can't easily replace inside the loop if we don't know the type for sure (str vs dict).
+            # But we know `step_item` was from `payload.draft.steps`.
+            # Let's perform a direct mutation if it's an object, or replace the list at the end.
+            
+            # Safe approach: Rebuild the steps list for the payload
+            # We need to import DraftStepIn to create new objects, but 'step_item' might be a plain dict if not validated? 
+            # No, it's Pydantic model.
+            
+            # Actually, `payload.draft.steps` is typed `List[Union[DraftStepIn, str]]`.
+            # Let's construct a cleaner dict/object representing the normalized state.
+            from ..schemas import DraftStepIn # Import inside function to avoid circular if any
+            
+            normalized_step_obj = DraftStepIn(
+                title=final_title,
+                bullets=final_bullets,
+                minutes=minutes
+            )
+            normalized_steps_for_variant.append(normalized_step_obj)
+        
+        # KEY FIX: Replace the payload steps with the normalized ones
+        payload.draft.steps = normalized_steps_for_variant
+
+    # 2. Create the first variant
+    variant = RecipeVariant(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        recipe_id=recipe.id,
+        label=payload.label,
+        content_json=payload.draft.model_dump(by_alias=True),
+        created_by="ai", 
+        model_id=payload.model_id,
+        prompt_version=payload.prompt_version
+    )
+    db.add(variant)
+    db.flush()
+
+    # 3. Set as active
+    recipe.active_variant_id = variant.id
+    db.commit()
+    db.refresh(recipe)
+    return _recipe_to_out(recipe)
+
+
+@router.post("/recipes/{recipe_id}/variants/from-draft", response_model=RecipeVariantOut)
+def create_variant_from_draft(
+    recipe_id: str,
+    payload: RecipeVariantFromDraftCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Save an AI draft as a new version of an existing recipe."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # FIX: Normalize the draft payload before saving the variant.
+    # Logic mirrors create_recipe_from_draft
+    if payload.draft.steps:
+        from ..schemas import DraftStepIn
+        normalized_steps = []
+        
+        for idx, step_item in enumerate(payload.draft.steps):
+            if isinstance(step_item, str):
+                parsed = parse_step_text(step_item)
+                raw_title = parsed["title"]
+                raw_bullets = parsed["bullets"]
+                minutes = 5
+            else:
+                raw_title = step_item.title
+                raw_bullets = step_item.bullets
+                minutes = step_item.minutes or 5
+
+            # Universal Normalization
+            normalized = normalize_step_structure(raw_title, raw_bullets)
+            final_title = normalized["title"]
+            final_bullets = normalized["bullets"]
+
+            # Hard Gate
+            if not final_bullets:
+                raise HTTPException(status_code=422, detail=f"Step {idx+1} invalid (empty bullets)")
+
+            normalized_steps.append(DraftStepIn(
+                title=final_title,
+                bullets=final_bullets,
+                minutes=minutes
+            ))
+        
+        payload.draft.steps = normalized_steps
+
+    variant = RecipeVariant(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        recipe_id=recipe_id,
+        label=payload.label,
+        content_json=payload.draft.model_dump(by_alias=True),
+        created_by="ai",
+        model_id=payload.model_id,
+        prompt_version=payload.prompt_version
+    )
+    db.add(variant)
+    db.commit()
+    db.refresh(variant)
+    return variant
+
+
+@router.post("/recipes/{recipe_id}/variants", response_model=RecipeVariantOut)
+def create_variant(
+    recipe_id: str,
+    payload: RecipeVariantCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Create a new version (variant) of a recipe."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    variant = RecipeVariant(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        recipe_id=recipe_id,
+        label=payload.label,
+        content_json=payload.content_json,
+        created_by="user"
+    )
+    db.add(variant)
+    db.commit()
+    db.refresh(variant)
+    return variant
+
+
+@router.patch("/recipes/{recipe_id}/active-variant", response_model=RecipeOut)
+def set_active_variant(
+    recipe_id: str,
+    body: Optional[SetActiveVariantRequest] = None,
+    # Keep query param for backward compat if needed, but make it optional
+    variant_id: Optional[str] = Query(None, description="ID of the variant to set active"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Switch the active version of a recipe."""
+    actual_variant_id = body.variant_id if body else variant_id
+    if not actual_variant_id:
+        raise HTTPException(status_code=400, detail="variant_id required")
+
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+        
+    # Verify variant belongs to recipe
+    variant = db.query(RecipeVariant).filter(
+        RecipeVariant.id == actual_variant_id, 
+        RecipeVariant.recipe_id == recipe_id
+    ).first()
+    
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found for this recipe")
+        
+    recipe.active_variant_id = actual_variant_id
+    db.commit()
+    
+    # Return updated recipe using get_recipe logic
+    return get_recipe(recipe_id, db, workspace)
     return entry
 
 

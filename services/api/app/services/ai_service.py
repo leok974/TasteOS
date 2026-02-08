@@ -2,7 +2,7 @@ import os
 import random
 import logging
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from ..core.ai_client import ai_client
 from ..settings import settings
 
@@ -30,9 +30,135 @@ class RecipeTipsResponse(BaseModel):
     confidence: str  # high, medium, low
     source: str = "ai"  # ai or heuristic
 
+class DraftYield(BaseModel):
+    servings: int
+    unit: str
+
+class DraftIngredient(BaseModel):
+    item: str
+    quantity: Optional[float]
+    unit: Optional[str]
+    section: str
+    notes: Optional[str]
+
+class DraftStep(BaseModel):
+    title: str = Field(description="SHORT LABEL ONLY (2-5 words). Not a full sentence. No period.", max_length=30, min_length=2)
+    bullets: List[str] = Field(description="Checklist items. Min 1. Each max 120 chars.", min_items=1, max_items=8)
+    minutes: Optional[int] = Field(None, description="Estimated time for this step.", ge=0, le=240)
+
+class DraftRecipe(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    title: str
+    yield_data: DraftYield = Field(alias="yield")
+    total_time_minutes: int
+    ingredients: List[DraftIngredient]
+    steps: List[DraftStep]
+    tags: List[str]
+    notes: Optional[str]
+
+class RecipeDraftResponse(BaseModel):
+    assistant_message: str
+    recipe_json: DraftRecipe
+    suggested_label: str
+
 class AIService:
     def __init__(self):
         self.mode = settings.ai_mode
+
+    def generate_recipe_draft(self, message: str, context_recipe: Optional[dict] = None) -> RecipeDraftResponse:
+        """Generate a structured recipe draft from a user request."""
+        
+        # System Prompt
+        system_prompt = """
+        You are TasteOS Chef. Output ONLY valid JSON matching the provided schema. No markdown, no prose, no code fences.
+
+        CRITICAL STEP RULES (NON-NEGOTIABLE):
+        - steps[].title must be a SHORT LABEL (2–5 words). NOT a sentence. NO period. NO colon.
+        - steps[].bullets must be a checklist array. Prefer 2–6 bullets. Each bullet is one action.
+        - Do NOT put instructions in the title. If you wrote a sentence title, move it to bullets[0] and replace title with a label like "Prep", "Mix", "Cook", "Bake", "Serve".
+        - No duplicate text between title and bullets.
+        - If any bullet contains multiple sentences, split into multiple bullets.
+        - Never return empty bullets. If you cannot produce bullets, produce at least one bullet with the full instruction.
+
+        FORMAT STYLE:
+        - Bullets start with a verb (e.g. "Slice…", "Mix…", "Bake…").
+        - Keep bullets concise (<= 120 chars).
+        - Steps should match how a human would cook: group actions into logical phases (prep, cook, finish).
+
+        Return JSON ONLY.
+        """
+        
+        user_content = f"Request: {message}"
+        if context_recipe:
+            user_content += f"\n\nBase Recipe Context (JSON): {context_recipe}"
+            
+        if self.mode == "mock":
+            return self._mock_recipe_draft(message, context_recipe)
+
+        try:
+            # Call Gemini
+            response = ai_client.generate_content_sync(
+                prompt=user_content,
+                system_instruction=system_prompt,
+                response_model=RecipeDraftResponse
+            )
+            
+            if not response:
+                raise ValueError("Empty response from AI service")
+                
+            return self._sanitize_draft(response)
+            
+        except Exception as e:
+            logger.error(f"Recipe draft generation failed: {e}")
+            raise e
+
+    def _sanitize_draft(self, draft: RecipeDraftResponse) -> RecipeDraftResponse:
+        """Sanitize markdown artifacts from AI text."""
+        from ..core.text import clean_md, normalize_step_structure
+
+        if draft.recipe_json.title:
+            draft.recipe_json.title = clean_md(draft.recipe_json.title)
+        
+        if draft.recipe_json.steps:
+            for step in draft.recipe_json.steps:
+                # 1. Clean basic markdown
+                step.title = clean_md(step.title)
+                step.bullets = [clean_md(b) for b in step.bullets]
+                
+                # 2. Enforce Salsa Verde Structure via Normalizer
+                # Using the centralized normalizer ensures Preview matches DB
+                normalized = normalize_step_structure(step.title, step.bullets)
+                step.title = normalized["title"]
+                step.bullets = normalized["bullets"]
+            
+        return draft
+
+    def _mock_recipe_draft(self, message: str, context_recipe: Optional[dict]) -> RecipeDraftResponse:
+        """Return a dummy recipe for testing."""
+        return RecipeDraftResponse(
+            assistant_message=f"Here is a mock draft for: {message}",
+            suggested_label="Mock Version",
+            recipe_json={
+                "title": "Mock Recipe",
+                "yield": {"servings": 4, "unit": "servings"},
+                "ingredients": [
+                    {"section": "Main", "quantity": 1, "unit": "cup", "item": "mock ingredient"}
+                ],
+                "steps": [
+                    {
+                        "title": "Mix ingredients",
+                        "bullets": ["Combine flour and sugar", "Whisk until smooth"],
+                        "minutes": 5
+                    },
+                    {
+                        "title": "Cook",
+                        "bullets": ["Heat pan", "Fry for 5 mins"],
+                        "minutes": 10
+                    }
+                ],
+                "total_time_minutes": 15
+            }
+        )
 
     def generate_tips(self, recipe_title: str, ingredients: List[str], scope: str) -> RecipeTipsResponse:
         """Generate storage or reheat tips for a recipe."""

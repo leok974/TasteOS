@@ -7,7 +7,7 @@ Request/response models for:
 """
 
 from datetime import datetime, date
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Union
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -77,6 +77,75 @@ class RecipeIngredientOut(BaseModel):
 
 
 
+
+# --- Recipe Variant ---
+
+class RecipeVariantOut(BaseModel):
+    id: str
+    recipe_id: str
+    label: str
+    content_json: dict
+    created_at: datetime
+    created_by: str
+    model_id: Optional[str] = None
+    prompt_version: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class RecipeVariantCreate(BaseModel):
+    label: str
+    content_json: dict
+
+class RecipeVariantListOut(BaseModel):
+    id: str
+    label: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# --- Draft / Chat Integration ---
+
+class DraftStepIn(BaseModel):
+    title: str
+    bullets: List[str]
+    minutes: int = 0
+
+class RecipeDraftIn(BaseModel):
+    title: str
+    yield_data: Optional[dict] = Field(None, alias="yield")
+    tags: Optional[list[str]] = None
+    equipment: Optional[list[str]] = None
+    ingredients: list[dict]
+    steps: List[Union[DraftStepIn, str]]
+    storage: Optional[list[dict]] = None
+    reheat: Optional[list[dict]] = None
+    nutrition_estimate: Optional[dict] = None
+
+class RecipeFromDraftCreate(BaseModel):
+    workspace_id: str
+    draft: RecipeDraftIn
+    label: str = "Original"
+    source: str = "ai"
+    model_id: Optional[str] = None
+    prompt_version: Optional[str] = None
+
+class RecipeVariantFromDraftCreate(BaseModel):
+    workspace_id: str
+    draft: RecipeDraftIn
+    label: str
+    base_variant_id: Optional[str] = None
+    source: str = "ai"
+    model_id: Optional[str] = None
+    prompt_version: Optional[str] = None
+
+class SetActiveVariantRequest(BaseModel):
+    workspace_id: str
+    variant_id: str
+
+
+
 # --- Recipe ---
 
 class RecipeCreate(BaseModel):
@@ -111,6 +180,12 @@ class RecipeOut(BaseModel):
     steps: list[RecipeStepOut] = []
     ingredients: list[RecipeIngredientOut] = []
     images: list[RecipeImageOut] = []
+    
+    # Versioning
+    active_variant_id: Optional[str] = None
+    active_variant: Optional[RecipeVariantOut] = None
+    variants: list[RecipeVariantOut] = []
+    
     primary_image_url: Optional[str] = None  # Convenience field
     created_at: datetime
 
@@ -129,6 +204,9 @@ class RecipeListOut(BaseModel):
     time_minutes: Optional[int]
     primary_image_url: Optional[str] = None
     created_at: datetime
+    
+    active_variant_id: Optional[str] = None
+    variants: list[RecipeVariantListOut] = []
 
     class Config:
         from_attributes = True
@@ -810,8 +888,37 @@ class AutoflowClientState(BaseModel):
 
 class AutoflowRequest(BaseModel):
     step_index: int
+    mode: str = "quick"
+    client_state: AutoflowClientState = Field(default_factory=AutoflowClientState)
+
+
+# --- Chef Chat (Craft Recipes) ---
+
+class ChefChatRequest(BaseModel):
+    message: str
+    mode: Literal["create", "refine"] = "create"
+    thread_id: Optional[str] = None
+    
+    # For Refine mode
+    recipe_id: Optional[str] = None
+    base_variant_id: Optional[str] = None
+    
+    # Optional constraints
+    context_recipe_ids: Optional[list[str]] = None
+
+class ChefChatResponse(BaseModel):
+    assistant_message: str
+    recipe_draft: dict  # The structured recipe JSON
+    suggested_label: Optional[str] = None
+    
+    # Metadata
+    source: str = "ai"
+    model_id: Optional[str] = None
+    prompt_version: Optional[str] = None
+    thread_id: Optional[str] = None
+
     mode: str = "quick"  # quick | deep
-    client_state: AutoflowClientState
+    client_state: AutoflowClientState = Field(default_factory=AutoflowClientState)
 
 class AutoflowActionPayload(BaseModel):
     # Flexible payload for different action types

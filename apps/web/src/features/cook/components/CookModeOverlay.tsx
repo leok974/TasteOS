@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { IngredientRow } from "@/features/recipes/components/IngredientRow";
+import { cleanTitle } from '@/lib/recipeSanitize';
 import {
     X,
     Sparkles,
@@ -147,7 +148,7 @@ function StepCard({
                             </div>
                         )}
                         <div className="min-w-0">
-                            <CardTitle className="truncate font-serif text-xl text-stone-900">{step.title}</CardTitle>
+                            <div className="text-lg font-semibold leading-snug line-clamp-2 text-stone-900">{step.title}</div>
                             <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-stone-400">~{step.minutes} min</p>
                         </div>
                     </div>
@@ -184,7 +185,7 @@ function StepCard({
             </CardHeader>
 
             <CardContent className="space-y-3">
-                <div className="space-y-2">
+                <div className="space-y-1">
                     {step.bullets.map((b, i) => {
                         const key = `${index}:${i}`;
                         const checked = Boolean(checks[key]);
@@ -195,19 +196,19 @@ function StepCard({
                                 onClick={() => onToggle(key)}
                                 data-testid={`bullet-check-${index}-${i}`}
                                 className={cn(
-                                    "flex w-full items-start gap-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3 text-left",
+                                    "flex w-full items-start gap-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-2.5 text-left transition-colors",
                                     checked && "border-amber-200 bg-amber-50/50"
                                 )}
                             >
                                 <div
                                     className={cn(
-                                        "mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-xl border border-stone-200 bg-white",
+                                        "mt-1 grid h-5 w-5 flex-none place-items-center rounded-full border border-stone-200 bg-white",
                                         checked && "border-amber-300 bg-amber-100/70"
                                     )}
                                 >
-                                    {checked ? <CheckCircle2 className="h-4 w-4 text-amber-700" /> : null}
+                                    {checked ? <CheckCircle2 className="h-3.5 w-3.5 text-amber-700" /> : null}
                                 </div>
-                                <div className={cn("text-sm font-semibold", checked ? "text-stone-700" : "text-stone-800")}>
+                                <div className={cn("min-w-0 flex-1 whitespace-normal break-words text-sm leading-snug", checked ? "text-stone-500 line-through decoration-stone-300" : "text-stone-600")}>
                                     {b}
                                 </div>
                             </button>
@@ -766,7 +767,7 @@ export function CookModeOverlay({
                                 {recipe.primary_image_url ? (
                                     <img
                                         src={recipe.primary_image_url}
-                                        alt={recipe.title}
+                                        alt={cleanTitle(recipe.title)}
                                         className="h-full w-full object-cover"
                                     />
                                 ) : (
@@ -776,7 +777,7 @@ export function CookModeOverlay({
                                 )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
                                 <div className="absolute bottom-4 left-4 right-4">
-                                    <div className="font-serif text-2xl leading-tight text-white">{recipe.title}</div>
+                                    <div className="font-serif text-2xl leading-tight text-white">{cleanTitle(recipe.title)}</div>
                                     <div className="mt-2 flex flex-wrap gap-2">
                                         <span className="rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
                                             Progress {progress}%

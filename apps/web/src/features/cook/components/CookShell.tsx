@@ -14,12 +14,17 @@ import {
 import { CookModeOverlay, CookStep } from '@/features/cook/components/CookModeOverlay';
 import { CompleteSessionDialog } from '@/features/cook/components/CompleteSessionDialog';
 import { useRecipe } from '@/features/recipes/hooks';
+import { cleanTitle, cleanLine } from "@/lib/recipeSanitize";
+import { toStructuredStep } from "@/lib/stepFormat";
 import type { RecipeStep } from '@/lib/api';
+
 function apiStepToCookStep(step: RecipeStep): CookStep {
+    // Canonical mapping: Trust the API's structure (Title + Bullets)
+    // The backend now handles normalization on save.
     return {
-        title: step.title,
+        title: cleanLine(step.title || ""),
         minutes: step.minutes_est ?? 5,
-        bullets: step.bullets ?? [],
+        bullets: (step.bullets || []).map(cleanLine),
     };
 }
 

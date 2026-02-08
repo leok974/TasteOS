@@ -31,6 +31,8 @@ import { IngredientRow } from '@/features/recipes/components/IngredientRow';
 import { RecipeLearningsCard } from '@/features/recipes/components/RecipeLearningsCard';
 import { RecipeInfoDrawer } from '@/features/recipes/components/RecipeInfoDrawer';
 import { useUnitPrefs } from '@/features/preferences/hooks';
+import { cleanTitle, cleanLine } from "@/lib/recipeSanitize";
+import { toStructuredStep } from "@/lib/stepFormat";
 import {
     useCookSessionStart,
 } from '@/features/cook/hooks';
@@ -44,11 +46,12 @@ interface CookStep {
 }
 function apiStepToCookStep(step: RecipeStep): CookStep {
     return {
-        title: step.title,
+        title: cleanLine(step.title || ""),
         minutes: step.minutes_est ?? 5,
-        bullets: step.bullets ?? [],
+        bullets: (step.bullets || []).map(cleanLine),
     };
 }
+
 
 // --- Local Components (Hero, MacroBadge) ---
 
@@ -160,7 +163,7 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
 
                 {/* Title & Metadata (Bottom) */}
                 <div className="absolute bottom-6 left-6 right-6 z-10">
-                    <h1 className="font-serif text-3xl leading-tight text-white drop-shadow-md">{recipe.title}</h1>
+                    <h1 className="font-serif text-3xl leading-tight text-white drop-shadow-md">{cleanTitle(recipe.title)}</h1>
                     <div className="mt-3 flex flex-wrap gap-2">
                         {recipe.cuisines?.map((c) => (
                             <span key={c} className="rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
@@ -372,8 +375,18 @@ export function RecipeDetailView({ recipeId }: { recipeId: string }) {
                                         <span className="text-xs font-black">{i + 1}</span>
                                     </div>
                                     <div className="flex-1">
-                                        <p className="font-bold text-stone-900">{step.title}</p>
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">~{step.minutes} min</p>
+                                        <div className="font-semibold text-stone-900 leading-snug">{step.title}</div>
+                                        {step.bullets && step.bullets.length > 0 && (
+                                            <ul className="mt-2 space-y-1 text-sm text-stone-600">
+                                                {step.bullets.map((b, idx) => (
+                                                    <li key={idx} className="flex gap-2">
+                                                        <span className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full bg-stone-300" />
+                                                        <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{b}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                        <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-stone-400">~{step.minutes} min</p>
                                     </div>
                                 </div>
                             </div>

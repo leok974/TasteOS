@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, Plus, Loader2, AlertCircle, ChefHat } from 'lucide-react';
-import { useRecipes, useSeedDev } from '@/features/recipes/hooks';
+import { Search, Loader2, AlertCircle, ChefHat, Sparkles } from 'lucide-react';
+import { useRecipes } from '@/features/recipes/hooks';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/cn';
-import { ImportRecipeModal } from '@/features/recipes/ImportRecipeModal';
-import { IngestRecipeModal } from '@/features/recipes/IngestRecipeModal';
+import { cleanTitle } from "@/lib/recipeSanitize";
 
 function RecipeCard({ recipe }: { recipe: { id: string; title: string; cuisines: string[] | null; time_minutes: number | null; primary_image_url: string | null } }) {
     return (
@@ -17,7 +15,7 @@ function RecipeCard({ recipe }: { recipe: { id: string; title: string; cuisines:
                     {recipe.primary_image_url ? (
                         <img
                             src={recipe.primary_image_url}
-                            alt={recipe.title}
+                            alt={cleanTitle(recipe.title)}
                             className="w-full h-full object-cover"
                         />
                     ) : (
@@ -27,7 +25,7 @@ function RecipeCard({ recipe }: { recipe: { id: string; title: string; cuisines:
                     )}
                 </div>
                 <div className="p-5">
-                    <h3 className="font-bold text-stone-900 tracking-tight line-clamp-2">{recipe.title}</h3>
+                    <h3 className="font-bold text-stone-900 tracking-tight line-clamp-2">{cleanTitle(recipe.title)}</h3>
                     <div className="mt-2 flex flex-wrap gap-2">
                         {recipe.cuisines?.slice(0, 2).map((c) => (
                             <span
@@ -52,11 +50,6 @@ function RecipeCard({ recipe }: { recipe: { id: string; title: string; cuisines:
 export default function RecipesPage() {
     const [search, setSearch] = useState('');
     const { data: recipes, isLoading, error } = useRecipes({ search: search || undefined });
-    const seedMutation = useSeedDev();
-
-    const handleSeed = () => {
-        seedMutation.mutate();
-    };
 
     return (
         <div className="min-h-screen bg-[#FAF9F6]">
@@ -84,23 +77,16 @@ export default function RecipesPage() {
                             className="w-full bg-amber-50/40 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium border border-amber-100 focus:bg-white focus:border-amber-200 focus:ring-0 outline-none transition-all shadow-sm"
                         />
                     </div>
-                    <IngestRecipeModal />
-                    <ImportRecipeModal />
-                    <Button
-                        variant="default"
-                        className="h-14 px-6 rounded-2xl"
-                        onClick={handleSeed}
-                        disabled={seedMutation.isPending}
-                    >
-                        {seedMutation.isPending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <>
-                                <Plus className="h-4 w-4 mr-2" />
-                                Seed Data
-                            </>
-                        )}
-                    </Button>
+                    
+                    <Link href="/craft-recipes">
+                        <Button
+                            variant="amber"
+                            className="h-14 px-6 rounded-2xl gap-2 shadow-sm"
+                        >
+                            <Sparkles className="h-4 w-4" />
+                            Craft Recipes
+                        </Button>
+                    </Link>
                 </div>
 
                 {/* Content */}
@@ -122,34 +108,23 @@ export default function RecipesPage() {
                         <ChefHat className="h-12 w-12 text-amber-200 mx-auto mb-4" />
                         <h2 className="font-serif text-xl text-stone-900">No recipes yet</h2>
                         <p className="mt-2 text-sm text-stone-600">
-                            Click "Seed Data" to add some sample recipes, or create your first recipe.
+                            Craft your first masterpiece with our AI Chef.
                         </p>
-                        <Button
-                            variant="amber"
-                            className="mt-6 h-12 px-8 rounded-2xl"
-                            onClick={handleSeed}
-                            disabled={seedMutation.isPending}
-                        >
-                            {seedMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                            ) : null}
-                            Add Sample Recipes
-                        </Button>
+                        <Link href="/craft-recipes">
+                            <Button
+                                variant="amber"
+                                className="mt-6 h-12 px-8 rounded-2xl"
+                            >
+                                <Sparkles className="h-4 w-4 mr-2" />
+                                Start Crafting
+                            </Button>
+                        </Link>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {recipes?.map((recipe) => (
                             <RecipeCard key={recipe.id} recipe={recipe} />
                         ))}
-                    </div>
-                )}
-
-                {/* Seed success message */}
-                {seedMutation.isSuccess && (
-                    <div className="fixed bottom-6 right-6 rounded-2xl border border-green-100 bg-green-50 px-6 py-4 shadow-lg">
-                        <p className="font-semibold text-green-800">
-                            ✓ {seedMutation.data?.message}
-                        </p>
                     </div>
                 )}
             </div>

@@ -9,7 +9,11 @@ class RuleBasedParser(RecipeParser):
         
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        title = self._extract_title(lines)
+        if hints and hints.get('title_hint'):
+            title = hints['title_hint']
+        else:
+            title = self._extract_title(lines)
+            
         ingredients = self._extract_ingredients(lines)
         steps = self._extract_steps(lines)
         
@@ -34,7 +38,10 @@ class RuleBasedParser(RecipeParser):
         # Assume first non-empty line is title, unless it's "Ingredients" or "Instructions"
         if not lines:
             return "Untitled Recipe"
-        return lines[0] # Very naive, but better than nothing
+        
+        # Clean up markdown header syntax
+        # e.g. "# Title" -> "Title"
+        return lines[0].lstrip('#').strip()
 
     def _extract_ingredients(self, lines: List[str]) -> List[ParsedIngredient]:
         ingredients = []

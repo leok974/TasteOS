@@ -45,6 +45,9 @@ def _build_image_url(storage_key: Optional[str]) -> Optional[str]:
     """Construct public URL from storage key."""
     if not storage_key:
         return None
+    # If key is already a URL or local path, return as is
+    if storage_key.startswith("http") or storage_key.startswith("/"):
+        return storage_key
     return f"{settings.object_public_base_url}/{storage_key}"
 
 
@@ -338,127 +341,7 @@ def update_recipe(
 
 # --- Image Generation Endpoints ---
 
-@router.post("/recipes/{recipe_id}/image/generate", response_model=dict)
-async def generate_image(
-    recipe_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    workspace: Workspace = Depends(get_workspace),
-):
-    """Create a pending image generation request.
-    
-    When AI is enabled, this will enqueue a job to generate the image.
-    For now, creates a pending row that can be processed by a worker.
-    """
-    pre = await idempotency_precheck(request, workspace_id=str(workspace.id), route_key="recipe_image_gen")
-    if isinstance(pre, JSONResponse):
-        return pre
-    redis_key, req_hash, _ = pre
-
-    try:
-        if not settings.ai_enabled:
-            raise HTTPException(
-                status_code=503,
-                detail="Image generation is disabled. Set AI_ENABLED=1 to enable."
-            )
-        
-        recipe = (
-            db.query(Recipe)
-            .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
-            .first()
-        )
-        if not recipe:
-            raise HTTPException(status_code=404, detail="Recipe not found")
-        
-        # Check if there's already a pending image
-        existing_pending = (
-            db.query(RecipeImage)
-            .filter(RecipeImage.recipe_id == recipe_id, RecipeImage.status == "pending")
-            .first()
-        )
-        if existing_pending:
-            res = {
-                "image_id": existing_pending.id,
-                "status": "pending",
-                "message": "Image generation already in progress",
-            }
-            await idempotency_store_result(redis_key, req_hash, status=200, body=res)
-            return res
-        
-        # Create new pending image
-        image = RecipeImage(
-            id=str(uuid.uuid4()),
-            recipe_id=recipe_id,
-            status="pending",
-            provider="gemini",
-            model=settings.gemini_model,
-            prompt=f"Professional food photography of {recipe.title}",
-        )
-        db.add(image)
-        db.commit()
-        db.refresh(image)
-        
-        # TODO: Enqueue job to worker (Redis + RQ)
-        # For now, the worker can poll for pending images
-        
-        res = {
-            "image_id": image.id,
-            "status": "pending",
-            "message": "Image generation started",
-        }
-        await idempotency_store_result(redis_key, req_hash, status=200, body=res)
-        return res
-    except Exception:
-        await idempotency_clear_key(redis_key)
-        raise
-
-
-@router.get("/recipes/{recipe_id}/image", response_model=dict)
-def get_image_status(
-    recipe_id: str,
-    db: Session = Depends(get_db),
-    workspace: Workspace = Depends(get_workspace),
-):
-    """Get the current image status for a recipe."""
-    recipe = (
-        db.query(Recipe)
-        .filter(Recipe.id == recipe_id, Recipe.workspace_id == workspace.id)
-        .first()
-    )
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    
-    # Get most recent image (ready preferred, then pending, then failed)
-    image = (
-        db.query(RecipeImage)
-        .filter(RecipeImage.recipe_id == recipe_id)
-        .order_by(
-            # Prioritize: ready > pending > failed
-            (RecipeImage.status == "ready").desc(),
-            (RecipeImage.status == "pending").desc(),
-            RecipeImage.created_at.desc(),
-        )
-        .first()
-    )
-    
-    if not image:
-        return {
-            "image_id": None,
-            "status": "none",
-            "public_url": None,
-            "provider": None,
-            "model": None,
-            "prompt": None,
-        }
-    
-    return {
-        "image_id": image.id,
-        "status": image.status,
-        "public_url": _build_image_url(image.storage_key) if image.status == "ready" else None,
-        "provider": image.provider,
-        "model": image.model,
-        "prompt": image.prompt,
-    }
+# Image generation endpoints moved to routers/images.py
 
 
     return {

@@ -72,9 +72,26 @@ def chef_chat(
 @router.get("/status")
 def get_ai_status():
     """Debug endpoint for AI availability."""
+    images_status = "ready"
+    
+    if not app_settings.ai_images_enabled:
+        images_status = "disabled_by_config"
+    elif not app_settings.gemini_api_key:
+        images_status = "missing_api_key"
+    elif ai_client.image_quota_exceeded:
+        images_status = "quota_exceeded"
+
+    images_available = (images_status == "ready")
+
     return {
         "ai_mode": app_settings.ai_mode,
         "model_text": app_settings.gemini_text_model,
+        "images_enabled": app_settings.ai_images_enabled and bool(app_settings.gemini_api_key),
+        "images_available": images_available,
+        "images_status": images_status,
+        "images_reason": images_status, # Keep backwards compatibility for a moment if needed
+        "image_provider": "google_genai" if app_settings.ai_images_enabled else "none",
+        "image_model": app_settings.ai_image_model if app_settings.ai_images_enabled else None,
         "has_api_key": bool(app_settings.gemini_api_key),
         "last_error": ai_client.last_error,
         "last_error_at": ai_client.last_error_at

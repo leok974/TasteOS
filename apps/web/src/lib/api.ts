@@ -242,20 +242,25 @@ export interface ImageStatus {
 
 export interface ImageGenerateResponse {
   image_id: string;
-  status: string;
-  message: string;
+  image_url: string;
+  purpose: string;
+  provider: string;
+  model: string;
+  is_ai: boolean;
 }
 
 export async function fetchImageStatus(recipeId: string): Promise<ImageStatus> {
   return apiGet<ImageStatus>(`/recipes/${recipeId}/image`);
 }
 
-export async function generateImage(recipeId: string): Promise<ImageGenerateResponse> {
-  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/generate`, undefined, { idempotent: true });
+export async function generateImage(recipeId: string, style: 'photo' | 'illustration' = 'photo'): Promise<ImageGenerateResponse> {
+  // Use the new plural endpoint
+  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/images/generate`, { purpose: 'card', style });
 }
 
 export async function regenerateImage(recipeId: string): Promise<ImageGenerateResponse> {
-  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/image/regenerate`, undefined, { idempotent: true });
+  // Use the new plural endpoint
+  return apiPost<ImageGenerateResponse>(`/recipes/${recipeId}/images/generate`, { purpose: 'card', style: 'photo' });
 }
 
 

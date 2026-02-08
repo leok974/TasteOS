@@ -7,7 +7,15 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://api:8000/api/:path*",
+        destination: process.env.API_URL 
+          ? `${process.env.API_URL}/api/:path*` 
+          : "http://api:8000/api/:path*",
+      },
+      {
+        source: "/media/:path*",
+        destination: process.env.API_URL
+          ? `${process.env.API_URL}/media/:path*`
+          : "http://api:8000/media/:path*",
       },
     ];
   },

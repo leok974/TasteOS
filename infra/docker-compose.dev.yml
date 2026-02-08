@@ -67,6 +67,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       AI_MODE: ${AI_MODE:-gemini}
       AI_ENABLED: ${AI_ENABLED:-true}
+      AI_IMAGES_ENABLED: ${AI_IMAGES_ENABLED:-true}
+      AI_IMAGE_MODEL: ${AI_IMAGE_MODEL:-gemini-2.5-flash-image}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-auto}
@@ -85,6 +87,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ../services/api:/app
+      - tasteos_media:/app/media
 
   worker:
     build:
@@ -96,6 +99,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       AI_MODE: ${AI_MODE:-gemini}
       AI_ENABLED: ${AI_ENABLED:-true}
+      AI_IMAGES_ENABLED: ${AI_IMAGES_ENABLED:-true}
+      AI_IMAGE_MODEL: ${AI_IMAGE_MODEL:-gemini-2.0-flash-exp}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-http://minio:9000}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-auto}
@@ -135,3 +140,4 @@ services:
 volumes:
   tasteos_pg:
   tasteos_minio:
+  tasteos_media:

@@ -362,6 +362,10 @@ export interface AIStatus {
     ai_mode: string;
     model_text: string;
     has_api_key: boolean;
+    images_enabled: boolean;
+    images_available: boolean;
+    images_status: string;
+    image_model?: string | null;
 }
 
 export function useAIStatus() {

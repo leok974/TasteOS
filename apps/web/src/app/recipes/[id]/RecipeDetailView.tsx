@@ -19,7 +19,8 @@ import {
     useAnalyzeMacros,
     useGenerateImage,
     useImageStatus,
-    useRegenerateImage
+    useRegenerateImage,
+    useAIStatus
 } from '@/features/recipes/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RecipeStep, Recipe } from '@/lib/api';
@@ -92,12 +93,14 @@ function MacroBadge({ recipeId }: { recipeId: string }) {
 }
 
 function RecipeHero({ recipe }: { recipe: Recipe }) {
-    const { mutate: generateImage, isPending: isGeneratingMsg } = useGenerateImage();
+    const { mutate: generateImage, isPending: isGeneratingMsg, error: genError } = useGenerateImage();
     const { mutate: regenerateImage } = useRegenerateImage();
     const { data: imageStatus } = useImageStatus(recipe.id);
+    const { data: aiStatus } = useAIStatus();
 
     const activeImageUrl = imageStatus?.public_url || recipe.primary_image_url;
     const isGenerating = imageStatus?.status === 'pending' || isGeneratingMsg;
+    const isQuotaError = genError?.message?.includes("429") || aiStatus?.images_status === 'quota_exceeded';
 
     const handleGenerate = () => generateImage(recipe.id);
     const handleRegenerate = () => regenerateImage(recipe.id);
@@ -123,7 +126,7 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                 {/* Generate/Regenerate UI */}
                 <div className="absolute top-4 right-4 z-20">
                     {/* Regenerate Button (only if image exists and not generating) */}
-                    {activeImageUrl && !isGenerating && (
+                    {activeImageUrl && !isGenerating && aiStatus?.images_available && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -141,10 +144,18 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                     <div className="absolute inset-0 flex items-center justify-center z-10">
                         <Button
                             onClick={handleGenerate}
-                            className="h-12 gap-2 rounded-full border border-amber-200/50 bg-white/90 px-6 text-stone-800 shadow-xl backdrop-blur-sm hover:bg-white"
+                            disabled={!aiStatus?.images_available || isQuotaError}
+                            className={cn(
+                                "h-12 gap-2 rounded-full border border-amber-200/50 bg-white/90 px-6 text-stone-800 shadow-xl backdrop-blur-sm hover:bg-white",
+                                (!aiStatus?.images_available || isQuotaError) && "opacity-70 cursor-not-allowed grayscale"
+                            )}
                         >
-                            <Sparkles className="h-4 w-4 text-amber-500" />
-                            <span className="font-bold text-xs uppercase tracking-widest">Generate Image</span>
+                            <Sparkles className={cn("h-4 w-4", (aiStatus?.images_available && !isQuotaError) ? "text-amber-500" : "text-stone-400")} />
+                            <span className="font-bold text-xs uppercase tracking-widest">
+                                {isQuotaError 
+                                    ? "Quota Limit Reached" 
+                                    : (aiStatus?.images_available ? "Generate Image" : "AI Images Disabled")}
+                            </span>
                         </Button>
                     </div>
                 )}

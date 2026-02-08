@@ -2,13 +2,16 @@
 import logging
 import sys
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from .settings import settings
+from .services.storage import MEDIA_ROOT
 from .routers.ready import router as ready_router
+
 from .routers.recipes import router as recipes_router
 from .routers.pantry import router as pantry_router
 from .routers.grocery import router as grocery_router
@@ -22,6 +25,7 @@ from .routers.insights import router as insights_router
 from .routers.units import router as units_router
 from .routers.prefs import router as prefs_router
 from .routers.units_density import router as density_router
+from .routers.images import router as images_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -46,6 +50,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount media directory for local storage
+app.mount("/media", StaticFiles(directory=str(MEDIA_ROOT)), name="media")
+
 app.include_router(ready_router, prefix="/api", tags=["ready"])
 app.include_router(workspaces_router, prefix="/api", tags=["workspaces"])
 app.include_router(recipes_router, prefix="/api", tags=["recipes"])
@@ -57,6 +64,7 @@ app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(cook_router, prefix="/api", tags=["cook"])
 app.include_router(units_router, prefix="/api/units", tags=["units"])
 app.include_router(prefs_router, prefix="/api", tags=["prefs"])
+app.include_router(images_router, prefix="/api", tags=["images"])
 
 @app.get("/debug_routes")
 def get_routes():

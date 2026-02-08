@@ -13,12 +13,17 @@ class Settings(BaseSettings):
 
     # AI
     ai_enabled: bool = False  # Gate for image generation
+    ai_images_enabled: bool = False # Gate for image generation (specific)
     ai_mode: str = "mock"  # "mock" or "gemini"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3-flash-preview"
     gemini_text_model: str = "gemini-3-flash-preview"
     gemini_text_model_fallback: str = "gemini-2.0-flash-lite-preview"
+    ai_image_model: str = "gemini-2.5-flash-image"
 
+
+    # Local Storage
+    media_root: str = "media"
 
     # Object store (S3-compatible)
     object_store_endpoint: str = "http://localhost:9000"

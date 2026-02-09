@@ -20,10 +20,32 @@ interface RecipeAssistPanelProps {
     recipeId: string;
     recipe: Recipe;
     className?: string;
+    variant?: "default" | "cook";
 }
 
-export function RecipeAssistPanel({ recipeId, recipe, className }: RecipeAssistPanelProps) {
-    const [messages, setMessages] = useState<RecipeAssistMessage[]>([]);
+export function RecipeAssistPanel({ recipeId, recipe, className, variant = "default" }: RecipeAssistPanelProps) {
+    const [messages, setMessages] = useState<RecipeAssistMessage[]>(() => {
+        if (typeof window === "undefined") return [];
+        try {
+            const key = `tasteos:assist:${recipeId}`;
+            const saved = localStorage.getItem(key);
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            console.error("Failed to load chat history", e);
+            return [];
+        }
+    });
+
+    // Persist messages
+    useEffect(() => {
+        try {
+            const key = `tasteos:assist:${recipeId}`;
+            localStorage.setItem(key, JSON.stringify(messages));
+        } catch (e) {
+            // Ignore storage errors
+        }
+    }, [recipeId, messages]);
+
     const [input, setInput] = useState("");
     // To track if AI is unavailable for this session
     const [aiUnavailable, setAiUnavailable] = useState(false);
@@ -120,7 +142,12 @@ export function RecipeAssistPanel({ recipeId, recipe, className }: RecipeAssistP
     };
 
     return (
-        <div className={cn("flex flex-col h-[600px] bg-white rounded-2xl border border-amber-100 overflow-hidden shadow-sm", className)}>
+        <div className={cn(
+            "flex flex-col bg-white overflow-hidden",
+            variant === "default" && "h-[600px] rounded-2xl border border-amber-100 shadow-sm",
+            variant === "cook" && "h-full rounded-none border-0",
+            className
+        )}>
              {/* Header */}
              <div className="p-4 border-b border-amber-100 bg-amber-50/50 flex items-center justify-between">
                  <div className="flex items-center gap-2">

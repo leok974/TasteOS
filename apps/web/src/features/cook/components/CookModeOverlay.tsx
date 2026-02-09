@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { IngredientRow } from "@/features/recipes/components/IngredientRow";
+import { RecipeAssistPanel } from "@/features/recipes/components/RecipeAssistPanel";
 import { cleanTitle } from '@/lib/recipeSanitize';
 import {
     X,
@@ -16,7 +17,8 @@ import {
     ChefHat,
     ChevronRight,
     CheckCircle2,
-    Clock
+    Clock,
+    Bot
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/badge';
@@ -717,6 +719,23 @@ export function CookModeOverlay({
                                             sessionId={session.id}
                                             activeMethodKey={session.method_key}
                                         />
+
+                                        {/* Ask Chef */}
+                                        <Sheet>
+                                            <SheetTrigger asChild>
+                                                <Button variant="outline" size="sm" className="h-[34px] rounded-full border-amber-200/50 bg-amber-50/50 hover:bg-amber-100/50 text-amber-700">
+                                                    <Sparkles className="h-4 w-4 mr-1.5" />
+                                                    Ask Chef
+                                                </Button>
+                                            </SheetTrigger>
+                                            <SheetContent className="w-[400px] sm:w-[540px] p-0 z-[200]">
+                                                <RecipeAssistPanel 
+                                                    recipeId={recipe.id} 
+                                                    recipe={recipe} 
+                                                    variant="cook"
+                                                />
+                                            </SheetContent>
+                                        </Sheet>
 
                                         {/* History / Why Panel */}
                                         <Sheet>

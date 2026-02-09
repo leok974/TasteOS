@@ -186,6 +186,10 @@ class RecipeOut(BaseModel):
     active_variant: Optional[RecipeVariantOut] = None
     variants: list[RecipeVariantOut] = []
     
+    # Cook Time Badge
+    total_minutes: Optional[int] = None
+    total_minutes_source: Optional[str] = None
+    
     primary_image_url: Optional[str] = None  # Convenience field
     created_at: datetime
 
@@ -201,7 +205,12 @@ class RecipeListOut(BaseModel):
     cuisines: Optional[list[str]]
     tags: Optional[list[str]]
     servings: Optional[int]
-    time_minutes: Optional[int]
+    
+    # We want total_minutes here for the list view badge
+    total_minutes: Optional[int] = None
+    total_minutes_source: Optional[str] = None
+    time_minutes: Optional[int] # Keep legacy
+    
     primary_image_url: Optional[str] = None
     created_at: datetime
     

@@ -2,48 +2,112 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, AlertCircle, ChefHat, Sparkles } from 'lucide-react';
-import { useRecipes } from '@/features/recipes/hooks';
+import { Search, Loader2, AlertCircle, ChefHat, Sparkles, Trash2 } from 'lucide-react';
+import { useRecipes, useDeleteRecipe } from '@/features/recipes/hooks';
 import { Button } from '@/components/ui/button';
 import { cleanTitle } from "@/lib/recipeSanitize";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
-function RecipeCard({ recipe }: { recipe: { id: string; title: string; cuisines: string[] | null; time_minutes: number | null; primary_image_url: string | null } }) {
+function RecipeCard({ recipe }: { recipe: { 
+    id: string; 
+    title: string; 
+    cuisines: string[] | null; 
+    time_minutes: number | null; 
+    total_minutes: number | null;
+    total_minutes_source: string | null;
+    primary_image_url: string | null; 
+} }) {
+    const deleteRecipe = useDeleteRecipe();
+    
+    // Determine time to show
+    const displayTime = recipe.total_minutes || recipe.time_minutes;
+    const isEstimated = recipe.total_minutes_source === 'estimated';
+
     return (
-        <Link href={`/recipes/${recipe.id}`} className="block">
-            <div className="group cursor-pointer rounded-[2rem] border border-amber-100/60 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                <div className="aspect-[4/3] bg-amber-50/40 relative">
-                    {recipe.primary_image_url ? (
-                        <img
-                            src={recipe.primary_image_url}
-                            alt={cleanTitle(recipe.title)}
-                            className="w-full h-full object-cover"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                            <ChefHat className="h-12 w-12 text-amber-200" />
-                        </div>
-                    )}
-                </div>
-                <div className="p-5">
-                    <h3 className="font-bold text-stone-900 tracking-tight line-clamp-2">{cleanTitle(recipe.title)}</h3>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                        {recipe.cuisines?.slice(0, 2).map((c) => (
-                            <span
-                                key={c}
-                                className="text-[9px] font-black uppercase tracking-widest text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100"
-                            >
-                                {c}
-                            </span>
-                        ))}
-                        {recipe.time_minutes && (
-                            <span className="text-[9px] font-black uppercase tracking-widest text-stone-500 bg-stone-50 px-2 py-1 rounded-lg border border-stone-100">
-                                {recipe.time_minutes}m
-                            </span>
+        <div className="relative group block">
+            <Link href={`/recipes/${recipe.id}`} className="block h-full">
+                <div className="h-full cursor-pointer rounded-[2rem] border border-amber-100/60 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                    <div className="aspect-[4/3] bg-amber-50/40 relative">
+                        {recipe.primary_image_url ? (
+                            <img
+                                src={recipe.primary_image_url}
+                                alt={cleanTitle(recipe.title)}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                                <ChefHat className="h-12 w-12 text-amber-200" />
+                            </div>
                         )}
                     </div>
+                    <div className="p-5">
+                        <h3 className="font-bold text-stone-900 tracking-tight line-clamp-2">{cleanTitle(recipe.title)}</h3>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {recipe.cuisines?.slice(0, 2).map((c) => (
+                                <span
+                                    key={c}
+                                    className="text-[9px] font-black uppercase tracking-widest text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100"
+                                >
+                                    {c}
+                                </span>
+                            ))}
+                            {displayTime && (
+                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border 
+                                    ${isEstimated ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-stone-500 bg-stone-50 border-stone-100'}`}>
+                                    {isEstimated && '~'}{displayTime}m
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
+            </Link>
+
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button
+                            variant="ghost" 
+                            size="icon"
+                            className="h-8 w-8 rounded-full bg-white/90 text-red-500 hover:text-red-600 hover:bg-white shadow-sm"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <Trash2 size={14} />
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Recipe?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will permanently delete "{cleanTitle(recipe.title)}" and all its images.
+                                This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteRecipe.mutate(recipe.id);
+                                }}
+                                className="bg-red-500 hover:bg-red-600"
+                            >
+                                {deleteRecipe.isPending ? "Deleting..." : "Delete"}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
-        </Link>
+        </div>
     );
 }
 

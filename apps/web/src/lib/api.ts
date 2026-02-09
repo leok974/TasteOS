@@ -93,6 +93,8 @@ export interface Recipe {
   images: RecipeImage[];
   primary_image_url: string | null;
   created_at: string;
+  total_minutes: number | null;
+  total_minutes_source: string | null;
 }
 
 export interface RecipeListItem {
@@ -103,6 +105,8 @@ export interface RecipeListItem {
   tags: string[] | null;
   servings: number | null;
   time_minutes: number | null;
+  total_minutes: number | null;
+  total_minutes_source: string | null;
   primary_image_url: string | null;
   created_at: string;
 }
@@ -223,6 +227,10 @@ export async function createRecipe(data: RecipeCreateInput): Promise<Recipe> {
 
 export async function updateRecipe(id: string, data: Partial<RecipeCreateInput>): Promise<Recipe> {
   return apiPatch<Recipe>(`/recipes/${id}`, data);
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  return apiDelete<void>(`/recipes/${id}`);
 }
 
 export async function seedDevData(): Promise<SeedResponse> {

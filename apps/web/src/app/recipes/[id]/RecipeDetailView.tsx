@@ -105,6 +105,10 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
     const handleGenerate = () => generateImage(recipe.id);
     const handleRegenerate = () => regenerateImage(recipe.id);
 
+    // Determine time to show
+    const displayTime = recipe.total_minutes || recipe.time_minutes;
+    const isEstimated = recipe.total_minutes_source === 'estimated';
+
     return (
         <div className="overflow-hidden rounded-[2.5rem] border border-amber-100/50 bg-white shadow-lg relative group">
             <div className="relative aspect-[16/9] bg-amber-50">
@@ -176,6 +180,12 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                 <div className="absolute bottom-6 left-6 right-6 z-10">
                     <h1 className="font-serif text-3xl leading-tight text-white drop-shadow-md">{cleanTitle(recipe.title)}</h1>
                     <div className="mt-3 flex flex-wrap gap-2">
+                        {displayTime && (
+                           <span className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
+                               <Clock className="h-3 w-3" />
+                               {isEstimated && '~'}{displayTime} MIN
+                           </span>
+                        )}
                         {recipe.cuisines?.map((c) => (
                             <span key={c} className="rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
                                 {c}
@@ -193,12 +203,6 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
             {/* Meta info Panel */}
             <div className="p-6 relative bg-white">
                 <div className="flex items-center gap-6 text-sm text-stone-600">
-                    {recipe.time_minutes && (
-                        <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-amber-600" />
-                            <span className="font-semibold">{recipe.time_minutes} min</span>
-                        </div>
-                    )}
                     {recipe.servings && (
                         <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-amber-600" />

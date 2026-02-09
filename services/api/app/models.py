@@ -117,6 +117,11 @@ class Recipe(Base):
     )
     servings: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     time_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    # Cook Time Badge Fields
+    total_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_minutes_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True) # "explicit" | "estimated"
+    
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Active image pointer (for deterministic display)
@@ -154,7 +159,8 @@ class Recipe(Base):
         nullable=True
     )
     variants: Mapped[list["RecipeVariant"]] = relationship(
-        "RecipeVariant", back_populates="recipe", foreign_keys="[RecipeVariant.recipe_id]"
+        "RecipeVariant", back_populates="recipe", foreign_keys="[RecipeVariant.recipe_id]",
+        cascade="all, delete-orphan"
     )
     active_variant: Mapped[Optional["RecipeVariant"]] = relationship(
         "RecipeVariant", foreign_keys="[Recipe.active_variant_id]", post_update=True
@@ -669,7 +675,7 @@ class CookSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id"), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

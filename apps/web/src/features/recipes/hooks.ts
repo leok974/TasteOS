@@ -6,6 +6,7 @@ import {
     fetchRecipe,
     createRecipe,
     updateRecipe,
+    deleteRecipe,
     seedDevData,
     fetchImageStatus,
     generateImage,
@@ -87,6 +88,17 @@ export function useUpdateRecipe() {
             updateRecipe(id, data),
         onSuccess: (recipe) => {
             queryClient.setQueryData(recipeKeys.detail(recipe.id), recipe);
+            queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+        },
+    });
+}
+
+export function useDeleteRecipe() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => deleteRecipe(id),
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
         },
     });

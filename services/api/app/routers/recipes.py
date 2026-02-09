@@ -33,6 +33,8 @@ from ..schemas import (
 )
 from ..settings import settings
 from ..services.events import log_event
+from ..services.storage import storage
+from ..services.time_estimate import estimate_recipe_time
 from sqlalchemy import desc, select, func, text, or_
 from pydantic import BaseModel
 
@@ -88,6 +90,9 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
         active_variant=recipe.active_variant,
         variants=recipe.variants,
         
+        total_minutes=recipe.total_minutes,
+        total_minutes_source=recipe.total_minutes_source,
+        
         primary_image_url=primary_url,
         created_at=recipe.created_at,
     )
@@ -111,6 +116,8 @@ def _recipe_to_list_out(recipe: Recipe) -> RecipeListOut:
         tags=recipe.tags,
         servings=recipe.servings,
         time_minutes=recipe.time_minutes,
+        total_minutes=recipe.total_minutes,
+        total_minutes_source=recipe.total_minutes_source,
         primary_image_url=primary_url,
         created_at=recipe.created_at,
         active_variant_id=recipe.active_variant_id,
@@ -220,6 +227,28 @@ def create_recipe(
     )
     db.add(variant)
     
+    # Calculate Cook Time Badge
+    query_steps = []
+    if payload.steps:
+        # Create object-like structs for estimator
+        class MockStep:
+            def __init__(self, t, b, m):
+                self.title = t
+                self.bullets = b
+                self.minutes_est = m
+        for s in payload.steps:
+            query_steps.append(MockStep(s.title, s.bullets, s.minutes_est))
+            
+    # Mock recipe for estimator (no ingredients in CREATE payload)
+    class MockRecipe:
+        def __init__(self, s):
+            self.steps = s
+            self.ingredients = []
+            
+    total_mins, source = estimate_recipe_time(MockRecipe(query_steps))
+    recipe.total_minutes = total_mins
+    recipe.total_minutes_source = source
+
     # Set active pointer
     recipe.active_variant_id = variant.active_variant_id = variant.id # Set on object
     
@@ -326,6 +355,27 @@ def update_recipe(
                 minutes_est=step_data.minutes_est,
             )
             db.add(step)
+            
+    # Re-calculate Cook Time Badge on Update
+    # Need to reload current ingredients if steps changed? Or assume ingredients not changed here.
+    # Recipe.ingredients is relationship.
+    # Need to flush to query relationship correctly unless we rely on session
+    db.flush() 
+    
+    # Reload recipe for accurate estimation
+    # Or just use the payload info if complete
+    # Easier to do a fresh query or use object if session is consistent.
+    # Since we deleted steps via query, session might be out of sync.
+    # Safest is to commit or use what we know.
+    # Let's commit everything so far, then reload and calc.
+    # But we want to save calc in same transaction.
+    
+    # We load ingredients
+    db.refresh(recipe, attribute_names=['ingredients', 'steps'])
+    
+    total_mins, source = estimate_recipe_time(recipe)
+    recipe.total_minutes = total_mins
+    recipe.total_minutes_source = source
     
     db.commit()
     db.refresh(recipe)
@@ -1492,4 +1542,54 @@ def estimate_recipe_tips(
             created_at=datetime.utcnow(),
             **entry_data
         )
+
+
+@router.delete("/recipes/{id}", status_code=204)
+def delete_recipe(
+    id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Delete a recipe and all its associated data (including images)."""
+    recipe = db.query(Recipe).filter(Recipe.id == id, Recipe.workspace_id == workspace.id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # 1. Collect image keys to delete from storage
+    # We do this before DB delete so we still have the records
+    storage_keys_to_delete = []
+    
+    # Check all associated images
+    for image in recipe.images:
+        if image.storage_key:
+            storage_keys_to_delete.append(image.storage_key)
+            
+    # 2. Delete from DB
+    # The cascade="all, delete-orphan" on relationships handles:
+    # - steps
+    # - images
+    # - ingredients
+    # - notes_history
+    # - cook_sessions (via FK cascade or manual)
+    
+    # Optional: manual delete if migration not applied yet
+    # from ..models import CookSession
+    # db.query(CookSession).filter(CookSession.recipe_id == id).delete()
+    
+    db.delete(recipe)
+    db.commit()
+
+    # 3. Cleanup files from storage (Best effort)
+    # We do this after DB commit to ensure DB integrity first.
+    # If file deletion fails, it's just orphaned files, which is better than broken DB data.
+    for key in storage_keys_to_delete:
+        try:
+            # Skip if it's an external URL
+            if key.startswith("http") or key.startswith("/"):
+                continue
+            storage.delete(key)
+        except Exception as e:
+            logger.warning(f"Failed to delete storage key {key} for recipe {id}: {e}")
+
+    return None
 

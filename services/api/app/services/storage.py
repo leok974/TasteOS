@@ -39,5 +39,24 @@ class LocalStorage:
     def exists(self, key: str) -> bool:
         return (MEDIA_ROOT / key).exists()
 
+    def delete(self, key: str) -> bool:
+        """
+        Delete file from local disk.
+        Returns True if deleted or didn't exist, False on error.
+        """
+        if ".." in key:
+            logger.warning(f"Invalid delete key: {key}")
+            return False
+
+        file_path = MEDIA_ROOT / key
+        try:
+            if file_path.exists():
+                file_path.unlink()
+                logger.info(f"Deleted file {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete {file_path}: {e}")
+            return False
+
 # Singleton
 storage = LocalStorage()

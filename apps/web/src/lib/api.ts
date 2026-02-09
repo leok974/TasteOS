@@ -300,6 +300,30 @@ export async function exportRecipe(id: string, download = false): Promise<Portab
   return apiGet<PortableRecipe>(`/recipes/${id}/export${query}`);
 }
 
+// --- Assist / Chat ---
+
+export interface RecipeAssistMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface RecipeAssistRequest {
+  messages: RecipeAssistMessage[];
+  mode?: string;
+}
+
+export interface RecipeAssistResponse {
+  reply: string;
+  used_ai: boolean;
+  reason?: string;
+  suggested: string[];
+}
+
+export async function assistRecipe(id: string, req: RecipeAssistRequest): Promise<RecipeAssistResponse> {
+  return apiPost<RecipeAssistResponse>(`/recipes/${id}/assist`, req);
+}
+
+
 export async function importRecipe(payload: PortableRecipe, mode: 'dedupe' | 'copy' = 'dedupe', regenImage = false): Promise<ImportResult> {
   const query = new URLSearchParams({ mode, regen_image: regenImage ? '1' : '0' });
   return apiPost<ImportResult>(`/recipes/import?${query.toString()}`, payload, { idempotent: true });

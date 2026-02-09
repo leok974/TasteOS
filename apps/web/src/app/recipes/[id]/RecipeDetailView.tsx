@@ -27,6 +27,7 @@ import type { RecipeStep, Recipe } from '@/lib/api';
 import { ShareRecipeModal } from '@/features/recipes/ShareRecipeModal';
 import { SubstituteModal } from '@/features/recipes/SubstituteModal';
 import { RecipeNotesHistory } from '@/features/recipes/RecipeNotesHistory';
+import { RecipeAssistPanel } from '@/features/recipes/components/RecipeAssistPanel';
 import { InsightsCard } from '@/features/insights/InsightsCard';
 import { IngredientRow } from '@/features/recipes/components/IngredientRow';
 import { RecipeLearningsCard } from '@/features/recipes/components/RecipeLearningsCard';
@@ -302,6 +303,7 @@ export function RecipeDetailView({ recipeId }: { recipeId: string }) {
     const { data: recipe, isLoading, error } = useRecipe(recipeId);
     const startSessionMutation = useCookSessionStart();
     const [subOpen, setSubOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'overview' | 'assist'>('overview');
 
     const handleStartCooking = () => {
         // Start session then redirect
@@ -372,45 +374,85 @@ export function RecipeDetailView({ recipeId }: { recipeId: string }) {
                 {/* Hero */}
                 <RecipeHero recipe={recipe} />
 
-                {/* Ingredients */}
-                <RecipeIngredients recipe={recipe} />
-
-                {/* Steps Preview */}
-                <div className="mt-8">
-                    <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-900 flex items-center gap-2 mb-4">
-                        <Flame className="h-4 w-4 text-amber-600" />
-                        Cooking Steps ({cookSteps.length})
-                    </h2>
-
-                    <div className="space-y-3">
-                        {cookSteps.slice(0, 3).map((step, i) => (
-                            <div key={i} className="rounded-[2rem] border border-amber-100/50 bg-white p-5 shadow-sm">
-                                <div className="flex items-center gap-3">
-                                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 border border-amber-100 text-amber-900">
-                                        <span className="text-xs font-black">{i + 1}</span>
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="font-semibold text-stone-900 leading-snug">{step.title}</div>
-                                        {step.bullets && step.bullets.length > 0 && (
-                                            <ul className="mt-2 space-y-1 text-sm text-stone-600">
-                                                {step.bullets.map((b, idx) => (
-                                                    <li key={idx} className="flex gap-2">
-                                                        <span className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full bg-stone-300" />
-                                                        <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{b}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                        <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-stone-400">~{step.minutes} min</p>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        {cookSteps.length > 3 && (
-                            <p className="text-center text-sm text-stone-400">+{cookSteps.length - 3} more steps</p>
-                        )}
+                {/* Tabs */}
+                <div className="mt-8 mb-6 border-b border-stone-100">
+                    <div className="flex gap-8">
+                        <button 
+                            onClick={() => setActiveTab('overview')}
+                            className={cn(
+                                "pb-3 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2", 
+                                activeTab === 'overview' 
+                                    ? "border-amber-500 text-stone-900" 
+                                    : "border-transparent text-stone-400 hover:text-stone-600"
+                            )}
+                        >
+                            Overview
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('assist')}
+                            className={cn(
+                                "pb-3 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2 flex items-center gap-2", 
+                                activeTab === 'assist' 
+                                    ? "border-amber-500 text-stone-900" 
+                                    : "border-transparent text-stone-400 hover:text-stone-600"
+                            )}
+                        >
+                            <Sparkles className={cn("h-3 w-3", activeTab === 'assist' ? "text-amber-500" : "text-stone-300")} />
+                            Ask Chef
+                        </button>
                     </div>
                 </div>
+
+                {activeTab === 'overview' ? (
+                    <>
+                        {/* Ingredients */}
+                        <RecipeIngredients recipe={recipe} />
+
+                        {/* Steps Preview */}
+                        <div className="mt-8">
+                            <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-900 flex items-center gap-2 mb-4">
+                                <Flame className="h-4 w-4 text-amber-600" />
+                                Cooking Steps ({cookSteps.length})
+                            </h2>
+
+                            <div className="space-y-3">
+                                {cookSteps.slice(0, 3).map((step, i) => (
+                                    <div key={i} className="rounded-[2rem] border border-amber-100/50 bg-white p-5 shadow-sm">
+                                        <div className="flex items-center gap-3">
+                                            <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 border border-amber-100 text-amber-900">
+                                                <span className="text-xs font-black">{i + 1}</span>
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="font-semibold text-stone-900 leading-snug">{step.title}</div>
+                                                {step.bullets && step.bullets.length > 0 && (
+                                                    <ul className="mt-2 space-y-1 text-sm text-stone-600">
+                                                        {step.bullets.map((b, idx) => (
+                                                            <li key={idx} className="flex gap-2">
+                                                                <span className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full bg-stone-300" />
+                                                                <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{b}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                                <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-stone-400">~{step.minutes} min</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {cookSteps.length > 3 && (
+                                    <p className="text-center text-sm text-stone-400">+{cookSteps.length - 3} more steps</p>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <RecipeAssistPanel 
+                            recipeId={recipeId} 
+                            recipe={recipe} 
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Floating Start Cook Mode Button */}

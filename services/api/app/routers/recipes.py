@@ -29,12 +29,14 @@ from ..schemas import (
     RecipeCreate, RecipeOut, RecipeListOut, RecipePatch, 
     RecipeNoteEntryOut, RecipeNoteEntryCreate, RecipeLearningsResponse, 
     RecipeVariantCreate, RecipeVariantOut,
-    RecipeFromDraftCreate, RecipeVariantFromDraftCreate, SetActiveVariantRequest
+    RecipeFromDraftCreate, RecipeVariantFromDraftCreate, SetActiveVariantRequest,
+    RecipeAssistRequest, RecipeAssistResponse
 )
 from ..settings import settings
 from ..services.events import log_event
 from ..services.storage import storage
 from ..services.time_estimate import estimate_recipe_time
+from ..services.ai_service import AIService
 from sqlalchemy import desc, select, func, text, or_
 from pydantic import BaseModel
 
@@ -1592,4 +1594,74 @@ def delete_recipe(
             logger.warning(f"Failed to delete storage key {key} for recipe {id}: {e}")
 
     return None
+
+
+# --- Chef Assist ---
+
+@router.post("/recipes/{id}/assist", response_model=RecipeAssistResponse)
+def assist_recipe(
+    id: str,
+    req: RecipeAssistRequest,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace),
+):
+    """Chat with Chef Assist about this recipe."""
+    recipe = db.execute(
+        select(Recipe)
+        .options(
+            joinedload(Recipe.steps),
+            joinedload(Recipe.ingredients)
+        )
+        .filter(Recipe.id == id, Recipe.workspace_id == workspace.id)
+    ).unique().scalar_one_or_none()
+    
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # Build Context
+    context = {
+        "title": recipe.title,
+        "servings": recipe.servings,
+        "total_minutes": recipe.total_minutes,
+        "steps": [
+            {
+                "title": s.title, # type: ignore
+                "bullets": s.bullets if s.bullets else [], # type: ignore
+                "minutes": s.minutes_est # type: ignore
+            }
+            for s in recipe.steps
+        ],
+        "ingredients": [
+            {
+                "name": i.name, # type: ignore
+                "qty": float(i.qty) if i.qty else None, # type: ignore
+                "unit": i.unit # type: ignore
+            }
+            for i in recipe.ingredients
+        ],
+        "notes": recipe.notes,
+        "tags": recipe.tags
+    }
+    
+    service = AIService()
+    try:
+        response = service.chat_about_recipe(
+            recipe_context=context,
+            messages=[m.dict() for m in req.messages]
+        )
+        return response
+    except ValueError as e:
+        # AI Unavailable
+        if "AI is not available" in str(e):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "ai_unavailable",
+                    "reason": "missing_key|disabled"
+                }
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Assist failed: {e}")
+        raise HTTPException(status_code=500, detail="Chef assist failed")
 

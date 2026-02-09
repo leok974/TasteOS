@@ -1,10 +1,12 @@
 import os
 import random
 import logging
+import json
 from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from ..core.ai_client import ai_client
 from ..settings import settings
+from ..schemas import RecipeAssistResponse
 
 logger = logging.getLogger("tasteos.ai")
 
@@ -132,6 +134,60 @@ class AIService:
                 step.bullets = normalized["bullets"]
             
         return draft
+
+    def chat_about_recipe(self, recipe_context: dict, messages: list[dict]) -> RecipeAssistResponse:
+        """
+        Chat with AI about a specific recipe.
+        """
+        if not ai_client.is_available() and self.mode != "mock":
+            raise ValueError("AI is not available")
+
+        # Prepare System Prompt
+        system_prompt = """
+        You are TasteOS Chef Assist. You are helping the user with *this specific recipe*. 
+        Use only the provided recipe context. If a question needs missing info, ask a clarifying question. 
+        Be concise and practical.
+        
+        Food safety rule: If asked about doneness, give safe temps and recommend thermometer. Avoid medical claims.
+        
+        Output JSON matching the requested schema.
+        """
+
+        # Build Context Block
+        context_str = f"Recipe Context:\n{json.dumps(recipe_context, indent=2)}\n\n"
+        
+        # Build Chat History
+        chat_log = ""
+        for msg in messages[-8:]: # Keep last 8 to match spec
+             role = msg.get('role', 'user').upper()
+             content = msg.get('content', '')
+             chat_log += f"{role}: {content}\n"
+             
+        prompt = f"{context_str}\nChat Log:\n{chat_log}\n\nASSISTANT:"
+        
+        if self.mode == "mock":
+             return RecipeAssistResponse(
+                 reply="This is a mock response. AI is disabled or in mock mode.",
+                 used_ai=False,
+                 reason=None,
+                 suggested=["Mock Sub", "Mock Tip"]
+             )
+
+        try:
+            response = ai_client.generate_content_sync(
+                prompt=prompt,
+                system_instruction=system_prompt,
+                response_model=RecipeAssistResponse
+            )
+             
+            if not response:
+                raise ValueError("Empty response from AI")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Chat generation failed: {e}")
+            raise e
 
     def _mock_recipe_draft(self, message: str, context_recipe: Optional[dict]) -> RecipeDraftResponse:
         """Return a dummy recipe for testing."""

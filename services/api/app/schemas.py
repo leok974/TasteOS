@@ -197,6 +197,23 @@ class RecipeOut(BaseModel):
         from_attributes = True
 
 
+# --- Recipe Chat / Assist ---
+
+class RecipeAssistMessage(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str
+    
+class RecipeAssistRequest(BaseModel):
+    messages: list[RecipeAssistMessage]
+    mode: str = "recipe"
+
+class RecipeAssistResponse(BaseModel):
+    reply: str
+    used_ai: bool
+    reason: Optional[str]
+    suggested: list[str]
+
+
 class RecipeListOut(BaseModel):
     """Lighter recipe model for list views (no steps)."""
     id: str

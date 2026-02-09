@@ -37,6 +37,31 @@ def parse_and_migrate(db, recipe_id=None):
         
         entries_to_create = []
         
+        # Migrate base note if it exists
+        if base_note:
+            # Check for existing "General Notes" or similar
+            # Use title "General Notes" or "Recipe Notes"
+            base_title = "General Notes"
+            
+            exists_base = db.query(RecipeNoteEntry).filter(
+                RecipeNoteEntry.recipe_id == recipe.id,
+                RecipeNoteEntry.title == base_title,
+                RecipeNoteEntry.deleted_at.is_(None)
+            ).first()
+            
+            if not exists_base:
+                entry = RecipeNoteEntry(
+                    id=str(uuid.uuid4()),
+                    workspace_id=recipe.workspace_id,
+                    recipe_id=recipe.id,
+                    source="migration",
+                    title=base_title,
+                    content_md=base_note,
+                    created_at=recipe.created_at or datetime.now(), # Use recipe creation date for base notes
+                    applied_to_recipe_notes=True
+                )
+                entries_to_create.append(entry)
+
         # Subsequent parts are sessions
         for part in parts[1:]:
             part = part.strip()

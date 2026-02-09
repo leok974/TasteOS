@@ -41,13 +41,19 @@ limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("tasteos.recipes")
 
 
-def _build_image_url(storage_key: Optional[str]) -> Optional[str]:
+def _build_image_url(storage_key: Optional[str], provider: Optional[str] = None) -> Optional[str]:
     """Construct public URL from storage key."""
     if not storage_key:
         return None
     # If key is already a URL or local path, return as is
     if storage_key.startswith("http") or storage_key.startswith("/"):
         return storage_key
+        
+    # If provider is local-based (google_genai Native uses LocalStorage), use /media
+    # TODO: This mapping should be cleaner (e.g. constant)
+    if provider == "google_genai":
+        return f"/media/{storage_key}"
+
     return f"{settings.object_public_base_url}/{storage_key}"
 
 
@@ -55,11 +61,11 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
     """Convert Recipe model to RecipeOut with image URLs."""
     # Build URLs for all images
     for img in recipe.images:
-        img.public_url = _build_image_url(img.storage_key)
+        img.public_url = _build_image_url(img.storage_key, getattr(img, "provider", None))
     
     # Build active image URL explicitly if joined loaded separately
     if recipe.active_image:
-        recipe.active_image.public_url = _build_image_url(recipe.active_image.storage_key)
+        recipe.active_image.public_url = _build_image_url(recipe.active_image.storage_key, getattr(recipe.active_image, "provider", None))
 
     primary_img = recipe.primary_image
     primary_url = primary_img.public_url if primary_img else None
@@ -89,13 +95,14 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
 
 def _recipe_to_list_out(recipe: Recipe) -> RecipeListOut:
     """Convert Recipe model to RecipeListOut for list views."""
-    # Optimized: property uses active_image if loaded
-    if recipe.active_image:
-        recipe.active_image.public_url = _build_image_url(recipe.active_image.storage_key)
-    
     primary_img = recipe.primary_image
-    primary_url = primary_img.public_url if primary_img else _build_image_url(primary_img.storage_key) if primary_img else None
+    primary_url = None
     
+    if primary_img:
+         # Use the helper to resolve URL based on provider
+         primary_url = _build_image_url(primary_img.storage_key, getattr(primary_img, "provider", None))
+         primary_img.public_url = primary_url
+
     return RecipeListOut(
         id=recipe.id,
         workspace_id=recipe.workspace_id,

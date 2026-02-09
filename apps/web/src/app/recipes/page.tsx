@@ -6,6 +6,7 @@ import { Search, Loader2, AlertCircle, ChefHat, Sparkles, Trash2 } from 'lucide-
 import { useRecipes, useDeleteRecipe } from '@/features/recipes/hooks';
 import { Button } from '@/components/ui/button';
 import { cleanTitle } from "@/lib/recipeSanitize";
+import { formatDurationPill } from '@/lib/format';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,9 @@ function RecipeCard({ recipe }: { recipe: {
     const deleteRecipe = useDeleteRecipe();
     
     // Determine time to show
-    const displayTime = recipe.total_minutes || recipe.time_minutes;
+    const timeLabel = formatDurationPill(recipe.total_minutes || recipe.time_minutes, {
+        estimated: recipe.total_minutes_source === 'estimated'
+    });
     const isEstimated = recipe.total_minutes_source === 'estimated';
 
     return (
@@ -61,10 +64,10 @@ function RecipeCard({ recipe }: { recipe: {
                                     {c}
                                 </span>
                             ))}
-                            {displayTime && (
-                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border 
+                            {timeLabel && (
+                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border tabular-nums 
                                     ${isEstimated ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-stone-500 bg-stone-50 border-stone-100'}`}>
-                                    {isEstimated && '~'}{displayTime}m
+                                    {timeLabel}
                                 </span>
                             )}
                         </div>

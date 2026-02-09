@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { RefreshCw, RotateCcw } from 'lucide-react';
 import { SwapRecipeModal } from './SwapRecipeModal';
 import { cleanTitle } from '@/lib/recipeSanitize';
-import { formatMinutes } from '@/lib/format';
+import { formatDurationPill } from '@/lib/format';
 
 interface PlanCellProps {
     entry?: PlanEntry;
@@ -39,8 +39,8 @@ export function PlanCell({ entry, type }: PlanCellProps) {
     
     // Time label strategy: prefer explicit total_minutes from recipe
     // Fallback? parse from method json if needed, but the backend is now fixed.
-    // formatMinutes handles null/undefined/NaN gracefully.
-    const timeLabel = formatMinutes(entry.recipe_total_minutes);
+    // formatDurationPill handles null/undefined/NaN gracefully.
+    const timeLabel = formatDurationPill(entry.recipe_total_minutes);
 
     return (
         <>
@@ -81,7 +81,7 @@ export function PlanCell({ entry, type }: PlanCellProps) {
                 {/* Footer / Method details (future) */}
                 <div className="mt-2 text-xs text-muted-foreground/80">
                     {timeLabel && (
-                        <span>⏱ {timeLabel}</span>
+                        <span className="tabular-nums">⏱ {timeLabel}</span>
                     )}
                 </div>
             </Card>

@@ -34,6 +34,7 @@ import { RecipeLearningsCard } from '@/features/recipes/components/RecipeLearnin
 import { RecipeInfoDrawer } from '@/features/recipes/components/RecipeInfoDrawer';
 import { useUnitPrefs } from '@/features/preferences/hooks';
 import { cleanTitle, cleanLine } from "@/lib/recipeSanitize";
+import { formatDurationPill } from "@/lib/format";
 import { toStructuredStep } from "@/lib/stepFormat";
 import {
     useCookSessionStart,
@@ -107,8 +108,9 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
     const handleRegenerate = () => regenerateImage(recipe.id);
 
     // Determine time to show
-    const displayTime = recipe.total_minutes || recipe.time_minutes;
-    const isEstimated = recipe.total_minutes_source === 'estimated';
+    const timeLabel = formatDurationPill(recipe.total_minutes || recipe.time_minutes, {
+        estimated: recipe.total_minutes_source === 'estimated'
+    });
 
     return (
         <div className="overflow-hidden rounded-[2.5rem] border border-amber-100/50 bg-white shadow-lg relative group">
@@ -181,10 +183,10 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                 <div className="absolute bottom-6 left-6 right-6 z-10">
                     <h1 className="font-serif text-3xl leading-tight text-white drop-shadow-md">{cleanTitle(recipe.title)}</h1>
                     <div className="mt-3 flex flex-wrap gap-2">
-                        {displayTime && (
-                           <span className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
+                        {timeLabel && (
+                           <span className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md tabular-nums">
                                <Clock className="h-3 w-3" />
-                               {isEstimated && '~'}{displayTime} MIN
+                               {timeLabel}
                            </span>
                         )}
                         {recipe.cuisines?.map((c) => (

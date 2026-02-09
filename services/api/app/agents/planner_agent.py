@@ -182,9 +182,13 @@ def generate_week_plan(
 
 def create_entry(plan_id, date_obj, meal_type, recipe, is_leftover=False):
     # Mock method options
+    minutes = recipe.total_minutes or recipe.time_minutes
+    stove_str = f"{minutes}m" if minutes else None
+    oven_base = minutes if minutes else 15
+    
     methods = {
-        "Stove": {"time": f"{recipe.time_minutes}m", "effort": "Medium"},
-        "Oven": {"time": f"{int(recipe.time_minutes or 15)*1.2}m", "effort": "Low"},
+        "Stove": {"time": stove_str, "effort": "Medium"},
+        "Oven": {"time": f"{int(oven_base * 1.2)}m", "effort": "Low"},
     }
     
     return MealPlanEntry(

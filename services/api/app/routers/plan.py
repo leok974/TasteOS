@@ -22,6 +22,7 @@ class MealPlanEntryOut(BaseModel):
     recipe_id: Optional[str]
     # recipe: Optional[RecipeOut] # Circular import risk, keep simple for MVP
     recipe_title: Optional[str] = None # Helper
+    recipe_total_minutes: Optional[int] = None
     is_leftover: bool
     force_cook: bool = False
     method_choice: Optional[str]
@@ -216,9 +217,13 @@ def update_entry(
         
         # Re-compute method options
         # Ported logic from planner_agent (simplified)
+        minutes = recipe.total_minutes or recipe.time_minutes
+        stove_str = f"{minutes}m" if minutes else None
+        oven_base = minutes if minutes else 15
+        
         methods = {
-            "Stove": {"time": f"{recipe.time_minutes}m", "effort": "Medium"},
-            "Oven": {"time": f"{int(recipe.time_minutes or 15)*1.2}m", "effort": "Low"},
+            "Stove": {"time": stove_str, "effort": "Medium"},
+            "Oven": {"time": f"{int(oven_base * 1.2)}m", "effort": "Low"},
         }
         entry.method_options_json = methods
         
@@ -261,12 +266,14 @@ def enrich_plan_response(plan: MealPlan, db: Session) -> MealPlanOut:
 
 def enrich_entry(entry: MealPlanEntry, db: Session) -> MealPlanEntryOut:
     title = None
+    total_minutes = None
     if entry.recipe_id:
         # Optimize: could allow eager loading in main query
         # But lazy for MVP is fine
         recipe = db.query(Recipe).filter(Recipe.id == entry.recipe_id).first()
         if recipe:
             title = recipe.title
+            total_minutes = recipe.total_minutes or recipe.time_minutes
             
     return MealPlanEntryOut(
         id=entry.id,
@@ -274,6 +281,7 @@ def enrich_entry(entry: MealPlanEntry, db: Session) -> MealPlanEntryOut:
         meal_type=entry.meal_type,
         recipe_id=entry.recipe_id,
         recipe_title=title,
+        recipe_total_minutes=total_minutes,
         is_leftover=entry.is_leftover,
         force_cook=entry.force_cook,
         method_choice=entry.method_choice,

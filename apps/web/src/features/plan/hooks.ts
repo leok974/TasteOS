@@ -13,6 +13,7 @@ export interface PlanEntry {
     meal_type: string;
     recipe_id?: string;
     recipe_title?: string;
+    recipe_total_minutes?: number;
     is_leftover: boolean;
     method_choice?: string;
     method_options_json?: any;

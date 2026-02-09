@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, RotateCcw } from 'lucide-react';
 import { SwapRecipeModal } from './SwapRecipeModal';
+import { cleanTitle } from '@/lib/recipeSanitize';
+import { formatMinutes } from '@/lib/format';
 
 interface PlanCellProps {
     entry?: PlanEntry;
@@ -34,6 +36,11 @@ export function PlanCell({ entry, type }: PlanCellProps) {
 
     // Determine variant based on leftover
     const isLeftover = entry.is_leftover;
+    
+    // Time label strategy: prefer explicit total_minutes from recipe
+    // Fallback? parse from method json if needed, but the backend is now fixed.
+    // formatMinutes handles null/undefined/NaN gracefully.
+    const timeLabel = formatMinutes(entry.recipe_total_minutes);
 
     return (
         <>
@@ -52,29 +59,29 @@ export function PlanCell({ entry, type }: PlanCellProps) {
                 </div>
 
                 <div>
-                    <div className="flex items-start justify-between gap-1 mb-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0 mb-2">
                         {isLeftover && (
-                            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex gap-1 items-center">
+                            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex gap-1 items-center shrink-0">
                                 <RefreshCw className="w-3 h-3" />
                                 Leftover
                             </Badge>
                         )}
                         {entry.method_choice && !isLeftover && (
-                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-auto">
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 shrink-0">
                                 {entry.method_choice}
                             </Badge>
                         )}
                     </div>
 
                     <h4 className={cn("font-medium text-sm leading-tight line-clamp-2", !entry.recipe_id && "text-muted-foreground italic")}>
-                        {entry.recipe_title || (isLeftover ? "Leftovers" : "No Recipe")}
+                        {cleanTitle(entry.recipe_title || (isLeftover ? "Leftovers" : "No Recipe"))}
                     </h4>
                 </div>
 
                 {/* Footer / Method details (future) */}
                 <div className="mt-2 text-xs text-muted-foreground/80">
-                    {entry.method_options_json?.["Stove"]?.time && (
-                        <span>⏱ {entry.method_options_json["Stove"].time}</span>
+                    {timeLabel && (
+                        <span>⏱ {timeLabel}</span>
                     )}
                 </div>
             </Card>

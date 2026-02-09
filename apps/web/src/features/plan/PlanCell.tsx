@@ -47,7 +47,7 @@ export function PlanCell({ entry, type }: PlanCellProps) {
             <Card
                 onClick={() => setIsSwapOpen(true)}
                 className={cn(
-                    "h-full p-3 flex flex-col justify-between transition-all hover:ring-2 hover:ring-primary/20 cursor-pointer group relative",
+                    "min-h-full p-3 flex flex-col justify-between transition-all hover:ring-2 hover:ring-primary/20 cursor-pointer group relative",
                     isLeftover ? "bg-muted/30" : "bg-card"
                 )}
             >

@@ -34,15 +34,19 @@ export function PlanGrid({ plan }: PlanGridProps) {
                     </div>
 
                     {/* Lunch */}
-                    <div className="flex-1 min-h-[160px]">
+                    <div className="min-h-[160px] flex flex-col">
                         <span className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">Lunch</span>
-                        <PlanCell entry={day.lunch} type="lunch" />
+                        <div className="flex-1">
+                            <PlanCell entry={day.lunch} type="lunch" />
+                        </div>
                     </div>
 
                     {/* Dinner */}
-                    <div className="flex-1 min-h-[160px]">
+                    <div className="min-h-[160px] flex flex-col">
                         <span className="text-xs font-medium text-muted-foreground mb-1 block uppercase tracking-wider">Dinner</span>
-                        <PlanCell entry={day.dinner} type="dinner" />
+                        <div className="flex-1">
+                            <PlanCell entry={day.dinner} type="dinner" />
+                        </div>
                     </div>
                 </div>
             ))}

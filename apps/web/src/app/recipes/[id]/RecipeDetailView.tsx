@@ -132,7 +132,8 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
 
                 {/* Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-Add to Plan Button (Top Left) */}
+
+                {/* Add to Plan Button (Top Left) */}
                 <div className="absolute top-4 left-4 z-20">
                     <Button
                         variant="ghost"

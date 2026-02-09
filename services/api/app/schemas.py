@@ -969,3 +969,37 @@ class AutoflowResponse(BaseModel):
     suggestions: list[AutoflowSuggestion]
     source: str # ai | heuristic
     autoflow_id: str
+
+# --- Grocery V2 ---
+
+class GroveryV2Scope(BaseModel):
+    start: date
+    days: Optional[List[date]] = None
+    meals: Optional[List[str]] = None
+
+class GroceryGenerateV2Request(BaseModel):
+    start: date
+    days: Optional[List[date]] = None
+    meals: Optional[List[str]] = None
+
+class GrocerySource(BaseModel):
+    recipe_id: str
+    recipe_title: str
+    line: Optional[str] = None
+
+class GroceryItemV2(BaseModel):
+    key: str
+    display: str
+    quantity: Optional[float]
+    unit: Optional[str]
+    raw: List[str]
+    sources: List[GrocerySource]
+
+class GroceryUnparsedV2(BaseModel):
+    raw: str
+    sources: List[GrocerySource]
+
+class GroceryV2Response(BaseModel):
+    scope: GroveryV2Scope
+    items: List[GroceryItemV2]
+    unparsed: List[GroceryUnparsedV2]

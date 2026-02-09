@@ -10,10 +10,12 @@ import {
     Clock,
     Users,
     Sparkles,
-    RefreshCw
+    RefreshCw,
+    CalendarPlus
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/button';
+import { AddToPlanModal } from '@/features/plan/AddToPlanModal';
 import {
     useRecipe,
     useAnalyzeMacros,
@@ -99,6 +101,7 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
     const { mutate: regenerateImage } = useRegenerateImage();
     const { data: imageStatus } = useImageStatus(recipe.id);
     const { data: aiStatus } = useAIStatus();
+    const [isAddToPlanOpen, setIsAddToPlanOpen] = useState(false);
 
     const activeImageUrl = imageStatus?.public_url || recipe.primary_image_url;
     const isGenerating = imageStatus?.status === 'pending' || isGeneratingMsg;
@@ -129,7 +132,20 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
 
                 {/* Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+Add to Plan Button (Top Left) */}
+                <div className="absolute top-4 left-4 z-20">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 gap-2 rounded-full bg-black/20 text-white backdrop-blur-md hover:bg-black/40 border border-white/10 px-3"
+                        onClick={() => setIsAddToPlanOpen(true)}
+                    >
+                        <CalendarPlus className="h-4 w-4" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Add to Plan</span>
+                    </Button>
+                </div>
 
+                {/* 
                 {/* Generate/Regenerate UI */}
                 <div className="absolute top-4 right-4 z-20">
                     {/* Regenerate Button (only if image exists and not generating) */}
@@ -223,6 +239,13 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                 {recipe.notes ? (
                     <details className="mt-4">
                         <summary className="text-xs font-bold uppercase tracking-widest text-stone-400 cursor-pointer hover:text-amber-600 transition-colors select-none">
+
+            <AddToPlanModal
+                open={isAddToPlanOpen}
+                onOpenChange={setIsAddToPlanOpen}
+                recipeId={recipe.id}
+                recipeTitle={recipe.title}
+            />
                             Show Legacy Notes Log
                         </summary>
                         <p className="mt-4 text-sm text-stone-600 leading-relaxed whitespace-pre-wrap pl-4 border-l-2 border-stone-100">{recipe.notes}</p>

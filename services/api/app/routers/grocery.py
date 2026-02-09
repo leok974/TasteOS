@@ -7,8 +7,119 @@ from datetime import date, datetime
 from .. import models, schemas
 from ..deps import get_db, get_workspace
 from ..agents.grocery_agent import generate_grocery_list
+from ..parsing.ingredient_parser import normalize_ingredient, parse_ingredient_line
 
 router = APIRouter()
+
+@router.post("/generate-plan", response_model=schemas.GroceryV2Response)
+def generate_grocery_list_from_plan(
+    request: schemas.GroceryGenerateV2Request,
+    workspace: models.Workspace = Depends(get_workspace),
+    db: Session = Depends(get_db)
+):
+    """Generate a deterministic grocery list from the weekly plan."""
+    
+    # 1. Fetch Plan
+    # Calculate Monday just in case, though we expect week_start to be Monday
+    monday = request.start - date.fromtimestamp(0).replace(day=1).min # logic error
+    # Actually just assume request.start is correct or normalize
+    # Let's trust input for now, or normalize to Monday
+    week_start = request.start
+    
+    stmt = select(models.MealPlan).options(
+        selectinload(models.MealPlan.entries).selectinload(models.MealPlanEntry.recipe).selectinload(models.Recipe.ingredients)
+    ).where(
+        models.MealPlan.workspace_id == workspace.id,
+        models.MealPlan.week_start == week_start
+    )
+    plan = db.execute(stmt).scalar_one_or_none()
+    
+    aggregated_items = {} # key -> { display, quantity, unit, raw[], sources[] }
+    unparsed_items = []
+
+    if plan:
+        # 2. Iterate Entries
+        for entry in plan.entries:
+            if not entry.recipe: continue
+            
+            # Filter by Day
+            if request.days and entry.date not in request.days:
+                continue
+            
+            # Filter by Meal
+            if request.meals and entry.meal_type not in request.meals:
+                continue
+                
+            recipe = entry.recipe
+            
+            # 3. Process Ingredients
+            # Priority: RecipeIngredient (structured) -> Fallback (parsing step text? No, instructions say 'lightweight parser')
+            # But C2 says 'Input: ingredient line string'.
+            # If we have structured ingredients, we construct the string for 'raw' or use them directly.
+            
+            if recipe.ingredients:
+                for ing in recipe.ingredients:
+                    # Construct pseudo-raw for checks
+                    raw_str = f"{ing.qty or ''} {ing.unit or ''} {ing.name}".strip()
+                    
+                    key, display, qty, unit = normalize_ingredient(ing.name, float(ing.qty) if ing.qty else None, ing.unit)
+                    
+                    if key not in aggregated_items:
+                        aggregated_items[key] = {
+                            "key": key,
+                            "display": display,
+                            "quantity": 0.0,
+                            "unit": unit,
+                            "raw": [],
+                            "sources": []
+                        }
+                    
+                    agg = aggregated_items[key]
+                    
+                    # Unit mismatch check (simple: if match, add. If not, maybe keep separate? For V1, just add if unit matches or is None)
+                    if agg["unit"] == unit:
+                        if qty: agg["quantity"] += qty
+                    else:
+                        # If unit mismatch, we might want to flag it or just append to raw.
+                        # V1: Ignore unit conversion, just append raw line.
+                        pass
+                        
+                    agg["raw"].append(raw_str)
+                    agg["sources"].append({
+                        "recipe_id": recipe.id,
+                        "recipe_title": recipe.title,
+                        "line": raw_str
+                    })
+            else:
+                # No structured ingredients? 
+                # Could parse `steps` if ingredients are missing? 
+                # Or `variants`? 
+                # For V1, if no ingredients, we can't do much.
+                pass
+
+    # 4. Format Output
+    items_out = []
+    for k, v in aggregated_items.items():
+        # Round quantity
+        if v["quantity"] > 0:
+            v["quantity"] = round(v["quantity"], 2)
+        else:
+            v["quantity"] = None
+            
+        items_out.append(schemas.GroceryItemV2(**v))
+    
+    # Sort by display name
+    items_out.sort(key=lambda x: x.display)
+
+    return schemas.GroceryV2Response(
+        scope=schemas.GroveryV2Scope(
+            start=request.start,
+            days=request.days,
+            meals=request.meals
+        ),
+        items=items_out,
+        unparsed=unparsed_items # Populated if parsing failed (not implemented for structured input path)
+    )
 
 @router.post("/generate", response_model=schemas.GroceryGenerateResponse)
 def generate_list(

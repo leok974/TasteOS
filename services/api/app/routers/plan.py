@@ -49,6 +49,13 @@ class EntryUpdate(BaseModel):
     force_cook: Optional[bool] = None
     method_choice: Optional[str] = None
 
+class PlanEntryCreate(BaseModel):
+    date: date
+    meal: str  # lunch | dinner
+    recipe_id: str
+    servings_override: Optional[int] = None
+
+
 # --- Autofill Schemas ---
 
 class AutofillRequest(BaseModel):
@@ -248,6 +255,87 @@ def update_entry(
     
     # Enrich single entry
     return enrich_entry(entry, db)
+
+
+@router.post("/plan/entries", response_model=MealPlanEntryOut)
+def create_plan_entry(
+    entry_in: PlanEntryCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_workspace)
+):
+    """Add a recipe to the meal plan (upsert logic)."""
+    
+    # 1. Determine Week Start (Monday)
+    monday = entry_in.date - timedelta(days=entry_in.date.weekday())
+    
+    # 2. Get or Create Plan
+    plan = db.query(MealPlan).filter(
+        MealPlan.workspace_id == workspace.id,
+        MealPlan.week_start == monday
+    ).first()
+    
+    if not plan:
+        plan = MealPlan(
+            workspace_id=workspace.id,
+            week_start=monday,
+            settings_json={} 
+        )
+        db.add(plan)
+        db.commit()
+        db.refresh(plan)
+
+    # 3. Check Recipe Exists
+    recipe = db.query(Recipe).filter(
+        Recipe.id == entry_in.recipe_id,
+        Recipe.workspace_id == workspace.id
+    ).first()
+    
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # 4. Upsert Entry
+    # Check if slot occupied
+    existing_entry = db.query(MealPlanEntry).filter(
+        MealPlanEntry.meal_plan_id == plan.id,
+        MealPlanEntry.date == entry_in.date,
+        MealPlanEntry.meal_type == entry_in.meal
+    ).first()
+
+    if existing_entry:
+        # Update existing
+        existing_entry.recipe_id = entry_in.recipe_id
+        existing_entry.is_leftover = False
+        existing_entry.method_choice = "Stove" # Reset default
+        # Note: servings_override not persisted yet
+        db_entry = existing_entry
+    else:
+        # Create new
+        db_entry = MealPlanEntry(
+            meal_plan_id=plan.id,
+            date=entry_in.date,
+            meal_type=entry_in.meal,
+            recipe_id=entry_in.recipe_id,
+            is_leftover=False,
+            # servings_override skipped
+        )
+        db.add(db_entry)
+    
+    # Helper to generate method options (simplified version of update_entry logic)
+    minutes = recipe.total_minutes or recipe.time_minutes
+    stove_str = f"{minutes}m" if minutes else None
+    oven_base = minutes if minutes else 15
+    methods = {
+         "Stove": {"time": stove_str, "effort": "Medium"},
+         "Oven": {"time": f"{min(999, int(oven_base * 1.2))}m", "effort": "Low"}, 
+    }
+    db_entry.method_options_json = methods
+    db_entry.method_choice = "Stove"
+
+    db.commit()
+    db.refresh(db_entry)
+    
+    return enrich_entry(db_entry, db)
+
 
 # --- Helpers ---
 

@@ -134,3 +134,53 @@ export function useUpdateEntry() {
 
     return { updateEntry, isUpdating };
 }
+
+export function useAddToPlan() {
+    const { toast } = useToast();
+    const { mutate } = useSWRConfig();
+    const { workspaceId } = useWorkspace();
+    const [isAdding, setIsAdding] = useState(false);
+
+    const addToPlan = useCallback(async (params: { 
+        recipeId: string; 
+        date: string; 
+        meal: string; 
+        servings?: number 
+    }) => {
+        setIsAdding(true);
+        if (!workspaceId) {
+            toast({ title: 'Error', description: 'No workspace.', variant: 'destructive' });
+            setIsAdding(false);
+            return false;
+        }
+
+        try {
+            await apiPost('/plan/entries', {
+                date: params.date,
+                meal: params.meal,
+                recipe_id: params.recipeId,
+                servings_override: params.servings || null
+            });
+            
+            // Invalidate plan cache
+            const planDate = new Date(params.date);
+            const monday = startOfWeek(planDate, { weekStartsOn: 1 });
+            const weekStartStr = format(monday, 'yyyy-MM-dd');
+            const key = ['/plan/current', workspaceId, weekStartStr];
+            
+            await mutate(key);
+            
+            toast({ title: 'Added to Plan', description: 'Recipe added successfully.' });
+            return true;
+        } catch (err) {
+            console.error(err);
+            toast({ title: 'Error', description: 'Failed to add to plan.', variant: 'destructive' });
+            return false;
+        } finally {
+            setIsAdding(false);
+        }
+    }, [workspaceId, toast, mutate]);
+
+    return { addToPlan, isAdding };
+}
+

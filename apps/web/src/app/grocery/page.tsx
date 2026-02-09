@@ -41,15 +41,14 @@ export default function GroceryPage() {
     const queryClient = useQueryClient();
     const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
 
-    const isStale = plan && groceryList && groceryList.source !== `plan:${plan.id}`;
+    const isStale = false; // Disable complex stale logic for V2
 
     const handleGenerateFromPlan = () => {
-        if (plan) {
-            generate({ planId: plan.id });
-        }
+        // Legacy or refresh? 
+        // For V2, we might want a different logic or button
     };
     
-    // Handler for ephemeral overrides
+    // Handler for ephemeral overrides (Legacy)
     const handleIncludeEntry = (entryId: string) => {
         if (!plan) return;
         

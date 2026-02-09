@@ -19,14 +19,20 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { format, startOfWeek, addDays } from 'date-fns';
+import { useRouter } from 'next/navigation';
 
-import { Plus, Leaf, X } from 'lucide-react';
+import { Plus, Leaf, X, ShoppingBasket } from 'lucide-react';
 import { useState } from 'react';
+import { apiPost } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 export default function PlanPage() {
+    const router = useRouter();
+    const { toast } = useToast();
     const { plan, isLoading, isEmpty } = useCurrentPlan();
     const { generate, isGenerating } = useGeneratePlan();
     const [showBoostBanner, setShowBoostBanner] = useState(true);
+    const [isGeneratingList, setIsGeneratingList] = useState(false);
 
     const handleGenerate = () => {
         // Determine next Monday or current week's Monday
@@ -36,6 +42,23 @@ export default function PlanPage() {
         const dateStr = format(monday, 'yyyy-MM-dd');
         
         generate(dateStr);
+    };
+
+    const handleGenerateGrocery = async () => {
+        if (!plan) return;
+        setIsGeneratingList(true);
+        try {
+            // Optimistic / simple v1: generate for current plan week
+            await apiPost('/grocery/generate-plan', {
+                start: plan.week_start
+            });
+            router.push('/grocery');
+        } catch (err) {
+            console.error(err);
+            toast({ title: "Error", description: "Failed to generate grocery list", variant: "destructive" });
+        } finally {
+            setIsGeneratingList(false);
+        }
     };
 
     return (
@@ -62,7 +85,16 @@ export default function PlanPage() {
                                  {plan.meta.use_soon_used && plan.meta.use_soon_used.length > 3 && `, +${plan.meta.use_soon_used.length - 3} more`}
                              </span>
                          </p>
-                    </div>
+                
+                <div className="flex gap-2">
+                    {plan && !isEmpty && (
+                        <Button variant="secondary" onClick={handleGenerateGrocery} disabled={isGeneratingList} className="gap-2">
+                             <ShoppingBasket className="w-4 h-4" />
+                             {isGeneratingList ? "Generating List..." : "Grocery List"}
+                        </Button>
+                    )}
+
+                        </div>
                     <button 
                         onClick={() => setShowBoostBanner(false)}
                         className="absolute top-3 right-3 text-green-700/50 hover:text-green-800 dark:text-green-400/50 dark:hover:text-green-300"
@@ -95,6 +127,7 @@ export default function PlanPage() {
                                 <AlertDialogTitle>Regenerate Weekly Plan?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                     This will overwrite your current weekly plan with new recipes. This action cannot be undone.
+                </div>
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

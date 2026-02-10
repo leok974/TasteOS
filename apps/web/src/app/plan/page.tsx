@@ -79,22 +79,22 @@ export default function PlanPage() {
                              Optimized to use your pantry
                          </h3>
                          <p className="text-sm text-green-700 dark:text-green-300 mt-1">
-                             This week's plan prioritizes ingredients you need to use soon: {' '}
+                             This week&apos;s plan prioritizes ingredients you need to use soon:{" "}
                              <span className="font-medium">
                                  {plan.meta.use_soon_used ? plan.meta.use_soon_used.slice(0, 3).join(", ") : ""}
                                  {plan.meta.use_soon_used && plan.meta.use_soon_used.length > 3 && `, +${plan.meta.use_soon_used.length - 3} more`}
                              </span>
                          </p>
                 
-                <div className="flex gap-2">
-                    {plan && !isEmpty && (
-                        <Button variant="secondary" onClick={handleGenerateGrocery} disabled={isGeneratingList} className="gap-2">
-                             <ShoppingBasket className="w-4 h-4" />
-                             {isGeneratingList ? "Generating List..." : "Grocery List"}
-                        </Button>
-                    )}
-
+                        <div className="flex gap-2">
+                            {plan && !isEmpty && (
+                                <Button variant="secondary" onClick={handleGenerateGrocery} disabled={isGeneratingList} className="gap-2">
+                                     <ShoppingBasket className="w-4 h-4" />
+                                     {isGeneratingList ? "Generating List..." : "Grocery List"}
+                                </Button>
+                            )}
                         </div>
+                    </div>
                     <button 
                         onClick={() => setShowBoostBanner(false)}
                         className="absolute top-3 right-3 text-green-700/50 hover:text-green-800 dark:text-green-400/50 dark:hover:text-green-300"
@@ -127,7 +127,6 @@ export default function PlanPage() {
                                 <AlertDialogTitle>Regenerate Weekly Plan?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                     This will overwrite your current weekly plan with new recipes. This action cannot be undone.
-                </div>
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

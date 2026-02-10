@@ -1003,3 +1003,67 @@ class GroceryV2Response(BaseModel):
     scope: GroveryV2Scope
     items: List[GroceryItemV2]
     unparsed: List[GroceryUnparsedV2]
+
+
+# --- Grocery Lists (Phase 4.8) ---
+
+class GroceryListItemCreate(BaseModel):
+    key: Optional[str] = None 
+    display: str
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    checked: bool = False
+    position: int = 0
+    raw: Optional[List[str]] = None
+    sources: Optional[List[Union[GrocerySource, dict]]] = None
+
+class GroceryListItemUpdate(BaseModel):
+    display: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    checked: Optional[bool] = None
+    position: Optional[int] = None
+
+class GroceryListItemOut(BaseModel):
+    id: str
+    list_id: str
+    key: str
+    display: str
+    quantity: Optional[float]
+    unit: Optional[str]
+    checked: bool
+    position: int
+    raw: Optional[List[str]] = None
+    sources: Optional[List[Union[GrocerySource, dict]]] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class GroceryListCreate(BaseModel):
+    title: str
+    kind: str = "manual"
+
+class GroceryListUpdate(BaseModel):
+    title: Optional[str] = None
+
+class GroceryListOut(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    kind: str
+    source: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+    item_count: Optional[int] = None
+    items: List[GroceryListItemOut] = []
+
+    class Config:
+        from_attributes = True
+
+class GroceryGenerateRequestV3(BaseModel):
+    title: str
+    start: Optional[date] = None 
+    days: Optional[List[date]] = None
+    meals: Optional[List[str]] = None
+    recipe_ids: Optional[List[str]] = None

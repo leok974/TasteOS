@@ -425,80 +425,76 @@ export async function deletePantryItem(id: string): Promise<void> {
   if (!res.ok) throw new Error(`DELETE /pantry/${id} failed`);
 }
 
-// --- Grocery API ---
+// --- Grocery List V1 (Phase 4.8) ---
 
 export interface GroceryListItem {
   id: string;
-  name: string;
-  qty?: number;
+  list_id: string;
+  key: string;
+  display: string;
+  quantity?: number;
   unit?: string;
-  category?: string;
-  status: 'need' | 'have' | 'optional' | 'purchased';
-  reason?: string;
-  pantry_item_id?: string;
-  expiry_days?: number; // Runtime calculated
-}
-
-export interface GrocerySkippedEntry {
-  plan_entry_id: string;
-  recipe_id: string;
-  title: string;
-  reason: string;
-}
-
-export interface GroceryReducedRecipe {
-  recipe_id: string;
-  title: string;
-  factor: number;
-  reason: string;
-}
-
-export interface GroceryGenerationMeta {
-  included_count: number;
-  skipped_count: number;
-  skipped_entries: GrocerySkippedEntry[];
-  reduced_recipes: GroceryReducedRecipe[];
-}
-
-export interface GroceryGenerateResponse {
-  list: GroceryList;
-  meta: GroceryGenerationMeta;
+  checked: boolean;
+  position: number;
+  sources?: any[]; // JSON
 }
 
 export interface GroceryList {
   id: string;
-  source?: string;
+  workspace_id: string;
+  title: string;
+  kind: 'manual' | 'generated';
+  source?: any;
   created_at: string;
-  items: GroceryListItem[];
-  meta?: GroceryGenerationMeta;
+  updated_at: string;
+  item_count?: number;
+  items?: GroceryListItem[];
 }
 
-export async function generateGroceryList(params: { recipeIds?: string[]; planId?: string; includeEntryIds?: string[] }): Promise<GroceryList> {
-  // Response is { list: ..., meta: ... }
-  const res = await apiPost<GroceryGenerateResponse>("/grocery/generate", {
-    recipe_ids: params.recipeIds || [],
-    plan_id: params.planId,
-    include_entry_ids: params.includeEntryIds || []
-  }, { idempotent: true });
-
-  // Attach meta to list for uniform handling
-  return {
-    ...res.list,
-    meta: res.meta
-  };
+export interface GroceryGenerateRequest {
+  title: string;
+  start?: string; // YYYY-MM-DD
+  days?: string[];
+  meals?: string[];
+  recipe_ids?: string[];
 }
 
-export async function fetchCurrentGroceryList(recompute: boolean = false): Promise<GroceryList> {
-  const query = recompute ? "?recompute=true" : "";
-  return apiGet<GroceryList>(`/grocery/current${query}`);
+// -- Endpoints --
+
+export async function fetchGroceryLists(): Promise<{ lists: GroceryList[] }> {
+  return apiGet<{ lists: GroceryList[] }>('/grocery/lists');
 }
 
-export async function clearGroceryList(): Promise<void> {
-  return apiDelete<void>(`/grocery/current`);
+export async function fetchGroceryList(id: string): Promise<GroceryList> {
+  return apiGet<GroceryList>(`/grocery/lists/${id}`);
 }
 
-export async function updateGroceryItem(id: string, data: { status?: string; qty?: number }): Promise<GroceryListItem> {
-  return apiPatch<GroceryListItem>(`/grocery/items/${id}`, data);
+export async function createGroceryList(data: { title: string, kind?: string }): Promise<GroceryList> {
+  return apiPost<GroceryList>('/grocery/lists', data);
+}
+
+export async function generateGroceryList(data: GroceryGenerateRequest): Promise<GroceryList> {
+  return apiPost<GroceryList>('/grocery/lists/generate', data);
+}
+
+export async function deleteGroceryList(id: string): Promise<void> {
+  return apiDelete<void>(`/grocery/lists/${id}`);
+}
+
+export async function updateGroceryList(id: string, data: { title?: string }): Promise<GroceryList> {
+  return apiPatch<GroceryList>(`/grocery/lists/${id}`, data);
+}
+
+export async function addGroceryItem(listId: string, data: { display: string, position?: number }): Promise<GroceryListItem> {
+  return apiPost<GroceryListItem>(`/grocery/lists/${listId}/items`, data);
+}
+
+export async function updateGroceryItem(listId: string, itemId: string, data: { checked?: boolean, display?: string, quantity?: number, unit?: string }): Promise<GroceryListItem> {
+  return apiPatch<GroceryListItem>(`/grocery/lists/${listId}/items/${itemId}`, data);
+}
+
+export async function deleteGroceryItem(listId: string, itemId: string): Promise<void> {
+  return apiDelete<void>(`/grocery/lists/${listId}/items/${itemId}`);
 }
 
 // --- Cook Session & Method Switching ---

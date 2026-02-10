@@ -1,588 +1,456 @@
-
 "use client";
 
-import React, { useState } from "react";
-import { Check, Plus, RefreshCw, ShoppingCart, Loader2, X, Undo, Trash2 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-
-import { useCurrentGrocery, useGenerateGrocery, useUpdateGroceryItem, groceryKeys, useClearGrocery } from "@/features/grocery/hooks";
-import { useRecipes } from "@/features/recipes/hooks";
-import { useCurrentPlan } from "@/features/plan/hooks";
-import { useToast } from "@/hooks/use-toast";
-import { ToastAction } from "@/components/ui/toast";
-import { deletePantryItem } from "@/lib/api";
-import { pantryKeys } from "@/features/pantry/hooks";
-
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import React, { useState, useEffect } from "react";
+import { Plus, ShoppingCart, Trash2, Calendar, LayoutList, Loader2, MoreVertical, Search, ChefHat } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { format } from "date-fns";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import { useRecipe } from "@/features/recipes/hooks";
+// Hooks
+import { 
+    useGroceryLists, 
+    useGroceryList, 
+    useCreateGroceryList, 
+    useGenerateGroceryList, 
+    useDeleteGroceryList,
+    useAddGroceryItem,
+    useUpdateGroceryItem, 
+    useDeleteGroceryItem,
+    useUpdateGroceryList
+} from "@/features/grocery/hooks";
+import { useCurrentPlan } from "@/features/plan/hooks";
+import { useRecipes } from "@/features/recipes/hooks";
+
+// UI
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export default function GroceryPage() {
-    const { data: groceryList, isLoading, isError, isRefetching } = useCurrentGrocery();
-    const { plan } = useCurrentPlan();
-    const { mutate: generate, isPending: isGenerating } = useGenerateGrocery();
-    const { mutate: clearList, isPending: isClearing } = useClearGrocery();
-    const queryClient = useQueryClient();
-    const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
-
-    const isStale = false; // Disable complex stale logic for V2
-
-    const handleGenerateFromPlan = () => {
-        // Legacy or refresh? 
-        // For V2, we might want a different logic or button
-    };
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const listIdParam = searchParams.get("list");
     
-    // Handler for ephemeral overrides (Legacy)
-    const handleIncludeEntry = (entryId: string) => {
-        if (!plan) return;
-        
-        // We need to re-generate the list, effectively passing ALL current excluded IDs + this one?
-        // OR does backend handle "additive" overriding?
-        // Loop v2.1 Backend: request.include_entry_ids are IDs to IGNORE checking leftovers for.
-        // It does NOT persist state. It is ephemeral for the generation call.
-        // So we need to re-generate with planId AND include_entry_ids=[entryId].
-        // If there are other entries we previously included, we lose them unless we track state locally.
-        // BUT for MVP/Prototype, maybe just re-generating with this one entry ID is enough to demonstrate "Override".
-        // A better UX would be to accumulate overrides.
-        // Let's assume for now the user clicks one at a time.
-        // Wait, if I click one, it regenerates. The other skipped items will still be skipped (returned in meta).
-        // Then I can click another one.
-        // The problem is subsequent calls need to include the PREVIOUSLY included IDs too, otherwise they will disappear from the list (get skipped again).
-        // So I need state: `overriddenEntryIds` in the parent component.
-        // BUT the grocery list response does not tell us which IDs were overridden in the PAST, only which were skipped NOW.
-        // Actually, if an item is NOT skipped, it is just in the list.
-        // So I can't easily distinguish "included because override" vs "included because needed".
-        // Unless I persist `overriddenEntryIds` in local state.
-        
-        // Let's implement local state for overrides.
-        generate({ 
-            planId: plan.id,
-            includeEntryIds: [...overrides, entryId]
-        }, {
-             onSuccess: () => {
-                 setOverrides(prev => [...prev, entryId]);
-                 setConfirmIncludeState(null);
-             }
-        });
-    };
-    
-    // State to track overrides across re-generations
-    const [overrides, setOverrides] = useState<string[]>([]);
-    const [confirmIncludeState, setConfirmIncludeState] = useState<{ entryId: string, recipeId: string } | null>(null);
+    // Manage local selection state, sync with URL in effect
+    const [selectedListId, setSelectedListId] = useState<string | null>(listIdParam);
+    const [isMobileListOpen, setMobileListOpen] = useState(false);
 
-    if (isLoading) return <div className="p-8 text-center text-slate-500">Loading grocery list...</div>;
+    useEffect(() => {
+        if (selectedListId && selectedListId !== listIdParam) {
+            router.replace(`/grocery?list=${selectedListId}`);
+        } else if (!selectedListId && listIdParam) {
+            setSelectedListId(listIdParam);
+        }
+    }, [selectedListId, listIdParam, router]);
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20">
-            <div className="max-w-2xl mx-auto p-4 sm:p-6 space-y-6">
+        <div className="flex h-[calc(100vh-4rem)] bg-background">
+            {/* Sidebar (Desktop) */}
+            <div className="hidden md:flex w-80 flex-col border-r bg-muted/10">
+                <GrocerySidebar selectedId={selectedListId} onSelect={setSelectedListId} />
+            </div>
 
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">Grocery List</h1>
-                        <p className="text-slate-500 text-sm">
-                           {/* Debug Marker */}
-                           <span className="text-xs bg-slate-100 rounded px-1 mr-2">v2</span>
-                            {groceryList ? `Created ${new Date(groceryList.created_at).toLocaleDateString()}` : "No active list"}
-                        </p>
-                    </div>
-                     <div className="flex gap-2">
-                        {/* Sync Button */}
-                        {groceryList && plan && (
-                            <Button 
-                                variant={isStale ? "default" : "outline"} 
-                                size="sm" 
-                                onClick={() => {
-                                    setOverrides([]); // Reset overrides on fresh sync?
-                                    handleGenerateFromPlan();
-                                }}
-                                disabled={isGenerating}
-                                className="min-w-[120px]"
-                            >
-                                <RefreshCw className={cn("w-4 h-4 mr-2", isGenerating && "animate-spin")} />
-                                {isGenerating ? "Syncing..." : (isStale ? "Sync to Plan" : "Regenerate")}
-                            </Button>
-                        )}
-                        
-                        {/* Clear / Start Over */}
-                        {groceryList && (
-                             <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-9 w-9 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10"
-                                title="Start Over (Delete List)"
-                                onClick={() => setIsClearDialogOpen(true)}
-                                disabled={isClearing || isGenerating}
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </Button>
-                        )}
-                        
-                        {/* Standard Refresh (if no plan, or just purely refreshing data) */}
-                        {groceryList && !plan && (
-                            <Button variant="outline" size="sm" 
-                                onClick={() => {
-                                    queryClient.invalidateQueries({ queryKey: groceryKeys.all });
-                                }}
-                                disabled={isRefetching}
-                                className="min-w-[100px]"
-                            >
-                                <RefreshCw className={cn("w-4 h-4 mr-2", isRefetching && "animate-spin")} />
-                                {isRefetching ? "Loading..." : "Refresh"}
-                            </Button>
-                        )}
-                    </div>
-                </div>
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col min-w-0">
+                 {/* Mobile Header / Toggle */}
+                 <div className="md:hidden p-4 border-b flex items-center justify-between bg-card">
+                     <h2 className="font-semibold">Grocery</h2>
+                     <Button variant="outline" size="sm" onClick={() => setMobileListOpen(true)}>
+                        <LayoutList className="w-4 h-4 mr-2"/> My Lists
+                     </Button>
+                 </div>
+                 
+                 {/* Mobile Sidebar Dialog */}
+                 <Dialog open={isMobileListOpen} onOpenChange={setMobileListOpen}>
+                    <DialogContent className="h-[80vh] p-0 gap-0 overflow-hidden flex flex-col">
+                         <GrocerySidebar 
+                            selectedId={selectedListId} 
+                            onSelect={(id) => { setSelectedListId(id); setMobileListOpen(false); }} 
+                         />
+                    </DialogContent>
+                 </Dialog>
 
-                <AlertDialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Start Over?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will delete your current grocery list. This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction 
-                                onClick={() => {
-                                    clearList();
-                                    setIsClearDialogOpen(false);
-                                }}
-                                className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
-                            >
-                                {isClearing ? "Deleting..." : "Delete List"}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-
-                {!groceryList || isError ? (
-                    <GenerateListSection />
-                ) : (
-                    <ActiveListSection 
-                        list={groceryList} 
-                        onInclude={(entryId, recipeId) => setConfirmIncludeState({ entryId, recipeId })}
-                        isGenerating={isGenerating}
-                    />
-                )}
-                
-                {confirmIncludeState && (
-                    <ConfirmIncludeModal 
-                        open={!!confirmIncludeState}
-                        onOpenChange={(open) => !open && setConfirmIncludeState(null)}
-                        entryId={confirmIncludeState.entryId}
-                        recipeId={confirmIncludeState.recipeId}
-                        isConfirming={isGenerating}
-                        onConfirm={() => {
-                            handleIncludeEntry(confirmIncludeState.entryId);
-                            // Modal closes on success inside handleIncludeEntry
-                        }}
-                    />
-                )}
+                 {selectedListId ? (
+                     <GroceryListDetail listId={selectedListId} />
+                 ) : (
+                     <EmptyState onSelectFirst={setSelectedListId} />
+                 )}
             </div>
         </div>
     );
 }
 
-function GenerateListSection() {
-    const { data: recipes } = useRecipes();
-    const { plan } = useCurrentPlan();
-    const { mutate: generate, isPending } = useGenerateGrocery();
-    const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-    const toggleRecipe = (id: string) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
-    };
-
-    const handleGenerate = () => {
-        generate({ recipeIds: selectedIds });
-    };
-
-    const handleGenerateFromPlan = () => {
-        console.log("Generating grocery list from plan:", plan?.id);
-        if (plan) {
-            generate({ planId: plan.id }, {
-              onError: (err) => console.error("Generate failed:", err)
-            });
-        }
-    };
-
-    return (
-        <Card>
-            <CardContent className="p-6 space-y-6">
-                <div className="text-center space-y-2">
-                    <div className="bg-slate-100 dark:bg-slate-800 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <ShoppingCart className="w-6 h-6 text-slate-500" />
-                    </div>
-                    <h3 className="text-lg font-semibold">Start a new list</h3>
-                    <p className="text-slate-500 text-sm">Select recipes or use your weekly plan.</p>
-                </div>
-
-                {/* Plan CTA */}
-                {plan && !plan.entries.every(e => !e.recipe_id) && (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-4 flex items-center justify-between">
-                        <div>
-                            <div className="font-medium text-blue-900 dark:text-blue-100">Weekly Plan Available</div>
-                            <div className="text-xs text-blue-700 dark:text-blue-300">
-                                {plan.entries.filter(e => e.recipe_id).length} meals planned
-                            </div>
-                        </div>
-                        <Button size="sm" onClick={handleGenerateFromPlan} disabled={isPending}>
-                            Use Weekly Plan
-                        </Button>
-                    </div>
-                )}
-
-                {plan && <div className="text-center text-xs text-slate-400 font-medium my-2">- OR -</div>}
-
-                <div className="space-y-2">
-                    <div className="flex justify-between items-center text-sm font-medium text-slate-900 dark:text-slate-200">
-                        <span>Select Recipes ({selectedIds.length})</span>
-                        {recipes && (
-                            <button
-                                onClick={() => setSelectedIds(selectedIds.length === recipes.length ? [] : recipes.map(r => r.id))}
-                                className="text-blue-500 hover:underline text-xs"
-                            >
-                                {selectedIds.length === recipes.length ? "Deselect All" : "Select All"}
-                            </button>
-                        )}
-                    </div>
-
-                    <div className="border rounded-md divide-y max-h-60 overflow-y-auto">
-                        {recipes?.map(recipe => (
-                            <div
-                                key={recipe.id}
-                                className={cn(
-                                    "p-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors",
-                                    selectedIds.includes(recipe.id) && "bg-blue-50 dark:bg-blue-900/10"
-                                )}
-                                onClick={() => toggleRecipe(recipe.id)}
-                            >
-                                <div className={cn(
-                                    "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors",
-                                    selectedIds.includes(recipe.id) ? "bg-blue-500 border-blue-500 text-white" : "border-slate-300"
-                                )}>
-                                    {selectedIds.includes(recipe.id) && <Check className="w-3 h-3" />}
-                                </div>
-                                <span className="text-sm truncate font-medium">{recipe.title.replace(/^#\s*/, '')}</span>
-                            </div>
-                        ))}
-                        {(!recipes || recipes.length === 0) && (
-                            <div className="p-4 text-center text-sm text-slate-500 font-italic">
-                                No recipes found. Seed data first?
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <Button className="w-full" size="lg" onClick={handleGenerate} disabled={selectedIds.length === 0 || isPending}>
-                    {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-                    Generate Manual List
-                </Button>
-            </CardContent>
-        </Card>
-    );
-}
-
-// --- Modals ---
-
-function ConfirmIncludeModal({ open, onOpenChange, entryId, recipeId, onConfirm, isConfirming }: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
-    entryId: string, 
-    recipeId: string,
-    onConfirm: () => void,
-    isConfirming?: boolean
-}) {
-    const { data: recipe, isLoading } = useRecipe(recipeId);
-
-    return (
-        <Dialog open={open} onOpenChange={(val) => !isConfirming && onOpenChange(val)}>
-            <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                    <DialogTitle>Include Excluded Meal?</DialogTitle>
-                    <DialogDescription>
-                        Adding this meal back to the plan will add the following ingredients to your grocery list.
-                    </DialogDescription>
-                </DialogHeader>
-                
-                <div className="py-4">
-                    <h4 className="text-sm font-medium mb-2 text-slate-900 dark:text-slate-100">
-                        {isLoading ? "Loading recipe details..." : recipe?.title}
-                    </h4>
-                    
-                    {isLoading ? (
-                         <div className="flex items-center justify-center py-4">
-                            <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-                        </div>
-                    ) : (
-                        <div className="bg-slate-50 dark:bg-slate-900 rounded p-3 text-sm max-h-[200px] overflow-y-auto">
-                           {recipe?.ingredients?.length ? (
-                               <ul className="space-y-1">
-                                   {recipe.ingredients.map((ing: any, i: number) => (
-                                       <li key={i} className="flex justify-between border-b last:border-0 border-slate-100 dark:border-slate-800 pb-1 last:pb-0">
-                                           <span>{ing.name}</span>
-                                           <span className="text-slate-500 text-xs">
-                                               {ing.qty && `${ing.qty} ${ing.unit}`}
-                                           </span>
-                                       </li>
-                                   ))}
-                               </ul>
-                           ) : (
-                               <p className="text-slate-500 italic">No ingredients listed (or already pending).</p>
-                           )}
-                        </div>
-                    )}
-                </div>
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isConfirming}>Cancel</Button>
-                    <Button onClick={onConfirm} disabled={isLoading || isConfirming}>
-                       {isConfirming && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                       Confirm Include
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function ActiveListSection({ list, onInclude, isGenerating }: { list: any, onInclude?: (entryId: string, recipeId: string) => void, isGenerating?: boolean }) {
-    // Sort items: Need -> Purchased -> Have
-    // Logic: 
-    // - Need: status === 'need'
-    // - Purchased: status === 'purchased'
-    // - Have: status === 'have' (Collapsed)
+function EmptyState({ onSelectFirst }: { onSelectFirst: (id: string) => void }) {
+    const { data } = useGroceryLists();
     
-    // Toast setup (local for this page)
-    const { toast, toasts, dismiss } = useToast();
-    const queryClient = useQueryClient();
+    useEffect(() => {
+        if (data?.lists && data.lists.length > 0) {
+            onSelectFirst(data.lists[0].id);
+        }
+    }, [data, onSelectFirst]);
 
-    const items = list.items || [];
-    const needItems = items.filter((i: any) => i.status === 'need');
-    const purchasedItems = items.filter((i: any) => i.status === 'purchased');
-    const haveItems = items.filter((i: any) => i.status === 'have');
+    if (data?.lists && data.lists.length > 0) return (
+         <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-muted-foreground mr-2" /> Redirecting...</div>
+    );
 
-    const { mutate: updateItem } = useUpdateGroceryItem();
+    return (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+            <ShoppingCart className="w-12 h-12 mb-4 opacity-20" />
+            <h3 className="text-lg font-medium text-foreground">No lists yet</h3>
+            <p className="mb-6">Create a list manually or generate one from your Weekly Plan.</p>
+        </div>
+    );
+}
 
-    const toggleStatus = (item: any) => {
-        let newStatus = 'need';
-        if (item.status === 'need') newStatus = 'purchased';
-        else if (item.status === 'purchased') newStatus = 'need';
-        else if (item.status === 'have') newStatus = 'need';
-        
-        updateItem({ id: item.id, data: { status: newStatus } }, {
-            onSuccess: (data) => {
-                // If moved to purchased, show toast with undo
-                if (newStatus === 'purchased' && data.pantry_item_id) {
-                     // Invalidate pantry to show up there immediately
-                     queryClient.invalidateQueries({ queryKey: pantryKeys.all });
-                     
-                     toast({
-                         title: "Moved to Pantry",
-                         description: `Added ${data.name} to your pantry.`,
-                         action: (
-                             <ToastAction altText="Undo" onClick={() => handleUndo(data.pantry_item_id!, item.id, data.name)}>
-                                 Undo
-                             </ToastAction>
-                         ),
-                     });
-                }
+function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, onSelect: (id: string) => void }) {
+    const { data, isLoading } = useGroceryLists();
+    const { mutate: createList, isPending: isCreating } = useCreateGroceryList();
+    const { mutate: generateList, isPending: isGenerating } = useGenerateGroceryList();
+    const { plan } = useCurrentPlan();
+    const { data: recipesData } = useRecipes();
+    
+    // New List Dialog State
+    const [isNewOpen, setIsNewOpen] = useState(false);
+    const [newTitle, setNewTitle] = useState("");
+
+    // Recipe Dialog State
+    const [isRecipeOpen, setIsRecipeOpen] = useState(false);
+    const [selectedRecipeIds, setSelectedRecipeIds] = useState<string[]>([]);
+    const [recipeSearch, setRecipeSearch] = useState("");
+
+    const handleCreate = () => {
+        if (!newTitle.trim()) return;
+        createList({ title: newTitle }, {
+            onSuccess: (list) => {
+                setIsNewOpen(false);
+                setNewTitle("");
+                onSelect(list.id);
             }
         });
     };
-    
-    const handleUndo = async (pantryId: string, groceryId: string, name: string) => {
-        try {
-            await deletePantryItem(pantryId);
-            // Revert grocery item to 'need'
-            updateItem({ id: groceryId, data: { status: 'need' } });
-            
-            queryClient.invalidateQueries({ queryKey: pantryKeys.all });
-            // dismiss();  // Don't modify all toasts
-            toast({ title: "Undo Successful", description: `Removed ${name} from pantry.` });
-        } catch (e) {
-            console.error(e);
-            toast({ title: "Undo Failed", description: "Could not remove item.", variant: "destructive" });
-        }
+
+    const handleGenerateFromPlan = () => {
+         if (!plan) return;
+         const title = `Weekly Plan (${format(new Date(plan.week_start), "MMM d")})`;
+         generateList({
+             title,
+             start: plan.week_start
+         }, {
+             onSuccess: (list) => onSelect(list.id)
+         });
     };
 
+    const handleGenerateFromRecipes = () => {
+         if (selectedRecipeIds.length === 0) return;
+         generateList({
+             title: `Recipe List (${selectedRecipeIds.length})`,
+             recipe_ids: selectedRecipeIds
+         }, {
+             onSuccess: (list) => {
+                 setIsRecipeOpen(false);
+                 setSelectedRecipeIds([]);
+                 onSelect(list.id);
+             }
+         });
+    };
+
+    const filteredRecipes = recipesData?.filter(r => r.title.toLowerCase().includes(recipeSearch.toLowerCase())) || [];
+
     return (
-        <div className="space-y-6 relative">
-             {/* Toast Container - Fixed or Absolute */}
-             {toasts.length > 0 && (
-                <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-                    {toasts.map((t) => (
-                        <div key={t.id} className="bg-slate-900 text-white p-4 rounded-lg shadow-lg flex items-center gap-4 min-w-[300px] pointer-events-auto animate-in slide-in-from-bottom-2">
-                            <div className="flex-1">
-                                <h4 className="font-semibold text-sm">{t.title}</h4>
-                                {t.description && <p className="text-xs opacity-80">{t.description}</p>}
-                            </div>
-                            {(t as any).action && (
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    onClick={() => { (t as any).action.onClick(); dismiss(t.id); }}
-                                    className="h-7 px-2 text-xs"
-                                >
-                                    <Undo className="w-3 h-3 mr-1" />
-                                    {(t as any).action.label}
-                                </Button>
+        <div className="flex flex-col h-full">
+            <div className="p-4 border-b space-y-2">
+                 <Button className="w-full justify-start" onClick={() => setIsNewOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" /> New Manual List
+                 </Button>
+                 {plan && (
+                     <Button 
+                        variant="secondary" 
+                        className="w-full justify-start" 
+                        onClick={handleGenerateFromPlan}
+                        disabled={isGenerating}
+                    >
+                        <Calendar className="w-4 h-4 mr-2" /> 
+                        {isGenerating ? "Generating..." : "From Weekly Plan"}
+                     </Button>
+                 )}
+                 <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    onClick={() => setIsRecipeOpen(true)}
+                    disabled={isGenerating}
+                >
+                    <ChefHat className="w-4 h-4 mr-2" /> From Selected Recipes
+                </Button>
+            </div>
+
+            <ScrollArea className="flex-1">
+                <div className="p-2 space-y-1">
+                    {isLoading && <div className="p-4 text-sm text-center text-muted-foreground">Loading lists...</div>}
+                    {data?.lists?.map(list => (
+                        <button
+                            key={list.id}
+                            onClick={() => onSelect(list.id)}
+                            className={cn(
+                                "w-full flex flex-col items-start px-3 py-2 rounded-md transition-colors text-sm",
+                                selectedId === list.id 
+                                    ? "bg-primary/10 text-primary font-medium" 
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
                             )}
-                            <button onClick={() => dismiss(t.id)} className="text-slate-400 hover:text-white">
-                                <X className="w-4 h-4" />
-                            </button>
+                        >
+                            <span className="truncate w-full text-left">{list.title}</span>
+                            <div className="flex items-center text-xs opacity-70 mt-1 w-full justify-between">
+                                <span>{list.item_count} items</span>
+                                <span>{format(new Date(list.created_at), "MMM d")}</span>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </ScrollArea>
+
+            <Dialog open={isNewOpen} onOpenChange={setIsNewOpen}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Create New List</DialogTitle></DialogHeader>
+                    <Input 
+                        placeholder="List Title (e.g. Costco Run)" 
+                        value={newTitle} 
+                        onChange={e => setNewTitle(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                    />
+                    <DialogFooter>
+                        <Button onClick={handleCreate} disabled={isCreating || !newTitle.trim()}>
+                            {isCreating ? "Creating..." : "Create"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isRecipeOpen} onOpenChange={setIsRecipeOpen}>
+                <DialogContent className="max-h-[80vh] flex flex-col">
+                    <DialogHeader><DialogTitle>Select Recipes</DialogTitle></DialogHeader>
+                    <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input placeholder="Search recipes..." className="pl-8" value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)} />
+                    </div>
+                    <ScrollArea className="flex-1 mt-2 border rounded-md p-2 min-h-[200px]">
+                         {filteredRecipes.length === 0 ? (
+                             <div className="text-center p-4 text-sm text-muted-foreground">No recipes found</div>
+                         ) : (
+                             filteredRecipes.map(recipe => (
+                                 <div key={recipe.id} className="flex items-center space-x-2 py-2 px-1 hover:bg-muted/50 rounded">
+                                     <Checkbox 
+                                        id={`r-${recipe.id}`} 
+                                        checked={selectedRecipeIds.includes(recipe.id)}
+                                        onCheckedChange={(checked) => {
+                                            if (checked) setSelectedRecipeIds([...selectedRecipeIds, recipe.id]);
+                                            else setSelectedRecipeIds(selectedRecipeIds.filter(id => id !== recipe.id));
+                                        }}
+                                     />
+                                     <label htmlFor={`r-${recipe.id}`} className="text-sm font-medium leading-none cursor-pointer flex-1 py-1">
+                                         {recipe.title}
+                                     </label>
+                                 </div>
+                             ))
+                         )}
+                    </ScrollArea>
+                    <DialogFooter>
+                        <div className="flex justify-between w-full items-center">
+                            <span className="text-sm text-muted-foreground">{selectedRecipeIds.length} selected</span>
+                            <Button onClick={handleGenerateFromRecipes} disabled={isGenerating || selectedRecipeIds.length === 0}>
+                                {isGenerating ? "Generating..." : "Generate List"}
+                            </Button>
                         </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Excluded Meals Section */}
-            {list.meta?.skipped_entries && list.meta.skipped_entries.length > 0 && (
-                <section className="space-y-3 pt-4 border-t border-amber-200/50">
-                     <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
-                        Excluded Meals <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-200">{list.meta?.skipped_entries?.length || 0}</Badge>
-                    </h3>
-                    <div className="space-y-2">
-                        {list.meta.skipped_entries.map((skipped: any) => (
-                            <div key={skipped.plan_entry_id} className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-lg flex items-center justify-between text-sm">
-                                <div>
-                                    <span className="font-medium text-slate-900 dark:text-slate-100">{skipped.title}</span>
-                                    <div className="flex items-center gap-2 mt-1">
-                                         <Badge variant="outline" className="text-[10px] h-5 px-1 bg-white dark:bg-slate-900 text-slate-500 border-slate-200">
-                                            Skips Grocery List
-                                        </Badge>
-                                        <span className="text-xs text-amber-700 dark:text-amber-400">
-                                            Reason: {skipped.reason}
-                                        </span>
-                                    </div>
-                                </div>
-                                {onInclude && (
-                                    <Button size="sm" variant="ghost" className="text-xs h-7 text-amber-900 hover:text-amber-950 hover:bg-amber-100 cursor-pointer"
-                                        onClick={() => onInclude(skipped.plan_entry_id, skipped.recipe_id)}
-                                        disabled={isGenerating}
-                                    >
-                                    {isGenerating ? "Updating..." : "Include anyway"}
-                                    </Button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
-
-            {/* Need Section */}
-            <section className="space-y-3">
-                <h3 className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    To Buy <Badge variant="secondary" className="rounded-full px-2">{needItems.length}</Badge>
-                </h3>
-                {needItems.length === 0 && purchasedItems.length === 0 && (
-                    <p className="text-sm text-slate-500 italic">Nothing to buy!</p>
-                )}
-                <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border overflow-hidden divide-y dark:divide-slate-800">
-                    {needItems.map((item: any) => (
-                        <GroceryItemRow key={item.id} item={item} onToggle={() => toggleStatus(item)} />
-                    ))}
-                </div>
-            </section>
-
-            {/* Purchased Section */}
-            {purchasedItems.length > 0 && (
-                <section className="space-y-3 opacity-60">
-                    <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Purchased</h3>
-                    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border overflow-hidden divide-y dark:divide-slate-800">
-                        {purchasedItems.map((item: any) => (
-                            <GroceryItemRow key={item.id} item={item} onToggle={() => toggleStatus(item)} />
-                        ))}
-                    </div>
-                </section>
-            )}
-
-            {/* Have Section */}
-            {haveItems.length > 0 && (
-                <section className="space-y-3 pt-4 border-t">
-                    <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
-                        Already Have <Badge variant="outline" className="rounded-full px-2">{haveItems.length}</Badge>
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {haveItems.map((item: any) => (
-                            <div 
-                                key={item.id} 
-                                onClick={() => toggleStatus(item)}
-                                className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded flex justify-between text-slate-500 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group"
-                            >
-                                <div className="flex-1 min-w-0 pr-2">
-                                     <span className={cn("truncate block group-hover:text-slate-900 dark:group-hover:text-slate-200")}>{item.name}</span>
-                                     {item.expiry_days !== undefined && item.expiry_days !== null && (
-                                         <span 
-                                            data-testid={`grocery-expiry-chip-${item.id}`}
-                                            className={cn(
-                                                "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium mt-1",
-                                                item.expiry_days <= 0 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
-                                                item.expiry_days <= 2 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" :
-                                                "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
-                                            )}
-                                         >
-                                            {item.expiry_days <= 0 ? "Expired" : `Expires in ${item.expiry_days} days`}
-                                         </span>
-                                     )}
-                                </div>
-                                <div className="flex items-center gap-2 self-start pt-0.5">
-                                    <span className="text-xs">{item.reason?.replace('Pantry match: ', '')}</span>
-                                    <Plus className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
-function GroceryItemRow({ item, onToggle }: { item: any, onToggle: () => void }) {
-    const isPurchased = item.status === 'purchased';
+function GroceryListDetail({ listId }: { listId: string }) {
+    const { data: list, isLoading } = useGroceryList(listId);
+    const { mutate: addItem } = useAddGroceryItem();
+    const { mutate: updateItem } = useUpdateGroceryItem();
+    const { mutate: deleteItem } = useDeleteGroceryItem();
+    const { mutate: deleteList } = useDeleteGroceryList();
+    const { mutate: updateList } = useUpdateGroceryList();
+    const router = useRouter();
+
+    const [newItemTerm, setNewItemTerm] = useState("");
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameTitle, setRenameTitle] = useState("");
+
+    if (isLoading) return <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
+    if (!list) return <div className="p-8 text-center text-red-500">List not found</div>;
+
+    const handleAddItem = () => {
+        if (!newItemTerm.trim()) return;
+        addItem({ listId, data: { display: newItemTerm } });
+        setNewItemTerm("");
+    };
+
+    const handleDeleteList = () => {
+        if (confirm("Are you sure you want to delete this list?")) {
+            deleteList(listId, {
+                onSuccess: () => {
+                    // Update URL to remove list param handled by parent?
+                    // No, parent sees invalidation and might not be able to clear selected ID automatically if list doesn't exist.
+                    // We must force deselect.
+                     // But we can't easily sync back to parent via prop.
+                    // Rely on parent re-validating or simply redirect.
+                    router.replace('/grocery');
+                }
+            });
+        }
+    };
+    
+    // Group Items
+    const pendingItems = list.items?.filter(i => !i.checked) || [];
+    const checkedItems = list.items?.filter(i => i.checked) || [];
+
     return (
-        <div
-            className={cn(
-                "p-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors",
-                isPurchased && "bg-slate-50"
-            )}
-            onClick={onToggle}
-        >
-            <div className={cn(
-                "w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors",
-                isPurchased ? "bg-green-500 border-green-500 text-white" : "border-slate-300"
-            )}>
-                {isPurchased && <Check className="w-3 h-3" />}
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className={cn("font-medium truncate", isPurchased && "line-through text-slate-400")}>
-                    {item.name}
-                </div>
-                <div className="text-xs text-slate-500">
-                    {item.qty} {item.unit} {item.category && <span className="ml-1 opacity-70">• {item.category}</span>}
-                </div>
-            </div>
+        <div className="flex flex-col h-full overflow-hidden">
+             {/* Header */}
+             <div className="p-4 border-b flex items-start justify-between bg-card shrink-0">
+                 <div className="space-y-1">
+                     {isRenaming ? (
+                         <div className="flex gap-2">
+                             <Input 
+                                value={renameTitle} 
+                                onChange={e => setRenameTitle(e.target.value)} 
+                                className="h-8 w-64"
+                                autoFocus
+                             />
+                             <Button size="sm" onClick={() => {
+                                 updateList({ id: listId, data: { title: renameTitle } });
+                                 setIsRenaming(false);
+                             }}>Save</Button>
+                         </div>
+                     ) : (
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-2xl font-bold">{list.title}</h1>
+                            {list.kind === 'generated' && <Badge variant="secondary" className="text-xs">Generated</Badge>}
+                        </div>
+                     )}
+                     <p className="text-xs text-muted-foreground">
+                        {list.items?.length || 0} items • Created {format(new Date(list.created_at), "PP")}
+                     </p>
+                 </div>
+                 
+                 <DropdownMenu>
+                     <DropdownMenuTrigger asChild>
+                         <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
+                     </DropdownMenuTrigger>
+                     <DropdownMenuContent align="end">
+                         <DropdownMenuItem onClick={() => {
+                             setRenameTitle(list.title);
+                             setIsRenaming(true);
+                         }}>
+                             Rename List
+                         </DropdownMenuItem>
+                         <DropdownMenuItem className="text-red-500" onClick={handleDeleteList}>
+                             <Trash2 className="w-4 h-4 mr-2" /> Delete List
+                         </DropdownMenuItem>
+                     </DropdownMenuContent>
+                 </DropdownMenu>
+             </div>
+
+             {/* Add Item Bar */}
+             <div className="p-4 bg-muted/20 shrink-0">
+                 <div className="flex gap-2 max-w-2xl mx-auto">
+                     <Input 
+                        placeholder="Add item..." 
+                        value={newItemTerm} 
+                        onChange={e => setNewItemTerm(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAddItem()}
+                        className="bg-background shadow-sm"
+                     />
+                     <Button onClick={handleAddItem} disabled={!newItemTerm.trim()}>
+                        <Plus className="w-4 h-4" />
+                     </Button>
+                 </div>
+             </div>
+
+             {/* Items List */}
+             <ScrollArea className="flex-1 p-4">
+                 <div className="max-w-2xl mx-auto space-y-6 pb-20">
+                     <div className="space-y-1">
+                         {pendingItems.map(item => (
+                             <GroceryItemRow 
+                                key={item.id} 
+                                item={item} 
+                                listId={listId}
+                                onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
+                                onDelete={() => deleteItem({ listId, itemId: item.id })}
+                             />
+                         ))}
+                         {pendingItems.length === 0 && checkedItems.length === 0 && (
+                             <div className="text-center py-10 text-muted-foreground">List is empty</div>
+                         )}
+                         {pendingItems.length === 0 && checkedItems.length > 0 && (
+                             <div className="text-center py-10 text-green-600 font-medium">All items checked! 🎉</div>
+                         )}
+                     </div>
+
+                     {checkedItems.length > 0 && (
+                         <>
+                             <Separator />
+                             <div className="space-y-1 opacity-60">
+                                 <h4 className="text-sm font-medium mb-2">Checked Items</h4>
+                                 {checkedItems.map(item => (
+                                     <GroceryItemRow 
+                                        key={item.id} 
+                                        item={item} 
+                                        listId={listId} 
+                                        onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: false } })}
+                                        onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                     />
+                                 ))}
+                             </div>
+                         </>
+                     )}
+                 </div>
+             </ScrollArea>
         </div>
-    )
+    );
+}
+
+function GroceryItemRow({ item, listId, onCheck, onDelete }: { item: any, listId: string, onCheck: () => void, onDelete: () => void }) {
+    // Determine info text
+    const infoParts = [];
+    if (item.quantity) infoParts.push(`${item.quantity} ${item.unit || ''}`);
+    if (item.sources && item.sources.length > 0) {
+        // Just show count or first recipe
+        if (item.sources.length === 1) infoParts.push(item.sources[0].recipe_title);
+        else infoParts.push(`${item.sources.length} recipes`);
+    }
+    const info = infoParts.join(" • ");
+
+    return (
+        <div className="group flex items-center gap-3 p-2 rounded hover:bg-muted/50 transition-colors">
+            <Checkbox checked={item.checked} onCheckedChange={onCheck} className="rounded-full w-5 h-5 border-2" />
+            <div className={cn("flex-1", item.checked && "line-through text-muted-foreground")}>
+                <div className="font-medium leading-none">{item.display}</div>
+                {info && <div className="text-xs text-muted-foreground mt-1">{info}</div>}
+            </div>
+            <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-red-500" onClick={onDelete}>
+                <Trash2 className="w-4 h-4" />
+            </Button>
+        </div>
+    );
 }

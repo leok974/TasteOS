@@ -1,72 +1,116 @@
-
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+    fetchGroceryLists,
+    fetchGroceryList,
+    createGroceryList,
     generateGroceryList,
-    fetchCurrentGroceryList,
+    updateGroceryList,
+    deleteGroceryList,
+    addGroceryItem,
     updateGroceryItem,
-    clearGroceryList,
+    deleteGroceryItem,
+    GroceryGenerateRequest
 } from "@/lib/api";
-
 import { useWorkspace } from '../workspaces/WorkspaceProvider';
 
 export const groceryKeys = {
     all: ["grocery"] as const,
-    current: () => [...groceryKeys.all, "current"] as const,
+    lists: (workspaceId: string) => [...groceryKeys.all, "lists", workspaceId] as const,
+    detail: (listId: string) => [...groceryKeys.all, "list", listId] as const,
 };
 
-export function useClearGrocery() {
+export function useGroceryLists() {
+    const { workspaceId } = useWorkspace();
+    return useQuery({
+        queryKey: groceryKeys.lists(workspaceId),
+        queryFn: () => fetchGroceryLists(),
+    });
+}
+
+export function useGroceryList(listId: string) {
+    return useQuery({
+        queryKey: groceryKeys.detail(listId),
+        queryFn: () => fetchGroceryList(listId),
+        enabled: !!listId
+    });
+}
+
+export function useCreateGroceryList() {
     const queryClient = useQueryClient();
     const { workspaceId } = useWorkspace();
-
     return useMutation({
-        mutationFn: () => clearGroceryList(),
+        mutationFn: createGroceryList,
         onSuccess: () => {
-             queryClient.setQueryData([...groceryKeys.current(), { workspaceId }], null);
+            queryClient.invalidateQueries({ queryKey: groceryKeys.lists(workspaceId) });
         }
     });
 }
 
-export function useCurrentGrocery() {
+export function useGenerateGroceryList() {
+    const queryClient = useQueryClient();
     const { workspaceId } = useWorkspace();
-    return useQuery({
-        queryKey: [...groceryKeys.current(), { workspaceId }],
-        queryFn: () => fetchCurrentGroceryList(true), // Always recompute on fetch for safety
-        retry: 1,
+    return useMutation({
+        mutationFn: (data: GroceryGenerateRequest) => generateGroceryList(data),
+        onSuccess: () => {
+             queryClient.invalidateQueries({ queryKey: groceryKeys.lists(workspaceId) });
+        }
     });
 }
 
-export function useGenerateGrocery() {
+export function useUpdateGroceryList() {
     const queryClient = useQueryClient();
     const { workspaceId } = useWorkspace();
     
     return useMutation({
-        mutationFn: (params: { recipeIds?: string[]; planId?: string; includeEntryIds?: string[] }) => generateGroceryList(params),
+        mutationFn: ({ id, data }: { id: string, data: { title?: string } }) => 
+            updateGroceryList(id, data),
         onSuccess: (data) => {
-            console.log("Grocery list generated successfully:", data.id);
-            // We set the data directly to preserve the ephemeral 'meta' field
-            queryClient.setQueryData([...groceryKeys.current(), { workspaceId }], data);
-            
-            // Force invalidation to ensure we get a fresh state next time
-            queryClient.invalidateQueries({ queryKey: groceryKeys.current() });
-        },
-        onError: (err) => {
-            console.error("Failed to generate grocery list", err);
+             queryClient.invalidateQueries({ queryKey: groceryKeys.lists(workspaceId) });
+             queryClient.invalidateQueries({ queryKey: groceryKeys.detail(data.id) });
         }
     });
 }
 
-import { pantryKeys } from '../pantry/hooks';
+export function useDeleteGroceryList() {
+    const queryClient = useQueryClient();
+    const { workspaceId } = useWorkspace();
+    return useMutation({
+        mutationFn: deleteGroceryList,
+        onSuccess: () => {
+             queryClient.invalidateQueries({ queryKey: groceryKeys.lists(workspaceId) });
+        }
+    });
+}
+
+export function useAddGroceryItem() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ listId, data }: { listId: string, data: { display: string, position?: number } }) => 
+            addGroceryItem(listId, data),
+        onSuccess: (data) => {
+             queryClient.invalidateQueries({ queryKey: groceryKeys.detail(data.list_id) });
+        }
+    });
+}
 
 export function useUpdateGroceryItem() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ id, data }: { id: string; data: { status?: string; qty?: number } }) =>
-            updateGroceryItem(id, data),
-        onSuccess: (data, variables) => {
-            queryClient.invalidateQueries({ queryKey: groceryKeys.current() });
-            if (variables.data.status === 'purchased') {
-                 queryClient.invalidateQueries({ queryKey: pantryKeys.all });
-            }
-        },
+        mutationFn: ({ listId, itemId, data }: { listId: string, itemId: string, data: { checked?: boolean, display?: string, quantity?: number, unit?: string } }) => 
+            updateGroceryItem(listId, itemId, data),
+        onSuccess: (data) => {
+             queryClient.invalidateQueries({ queryKey: groceryKeys.detail(data.list_id) });
+        }
+    });
+}
+
+export function useDeleteGroceryItem() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ listId, itemId }: { listId: string, itemId: string }) => 
+            deleteGroceryItem(listId, itemId),
+        onSuccess: (_, variables) => {
+             queryClient.invalidateQueries({ queryKey: groceryKeys.detail(variables.listId) });
+        }
     });
 }

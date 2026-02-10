@@ -501,10 +501,10 @@ class RecipeIngredient(Base):
 
 
 class GroceryList(Base):
-    """Generated grocery list."""
+    """Grocery list (v1 persistent)."""
     __tablename__ = "grocery_lists"
     __table_args__ = (
-        Index("ix_grocery_lists_workspace_id", "workspace_id"),
+        Index("idx_grocery_lists_workspace_created_at", "workspace_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(
@@ -514,15 +514,21 @@ class GroceryList(Base):
         String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     
-    # source: "plan:{id}" | "recipes:{ids}"
-    source: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(50), nullable=False, server_default="manual") # manual | generated
+    source: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True) # { plan_id, recipe_ids, ... }
+    
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     # Relationships
     items: Mapped[list["GroceryListItem"]] = relationship(
-        "GroceryListItem", back_populates="grocery_list", cascade="all, delete-orphan"
+        "GroceryListItem", back_populates="list", cascade="all, delete-orphan",
+        order_by="[GroceryListItem.position, GroceryListItem.created_at]"
     )
 
 
@@ -530,40 +536,33 @@ class GroceryListItem(Base):
     """Item in a grocery list."""
     __tablename__ = "grocery_list_items"
     __table_args__ = (
-        Index("ix_grocery_list_items_list_id", "grocery_list_id"),
+        Index("idx_grocery_items_list_id", "list_id"),
     )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=generate_uuid
     )
-    grocery_list_id: Mapped[str] = mapped_column(
+    list_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("grocery_lists.id", ondelete="CASCADE"), nullable=False
     )
     
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    qty: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
-    unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    key: Mapped[str] = mapped_column(String(255), nullable=False) # Normalized key
+    display: Mapped[str] = mapped_column(String(255), nullable=False)
+    quantity: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
-    # status: need | have | optional | purchased
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="need")
-    reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-
-    # Loop automation v1
-    pantry_item_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("pantry_items.id"), nullable=True
-    )
-    purchased_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    qty_purchased: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
-    unit_purchased: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True) 
+    sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True) # Recipe refs
+    
+    checked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     # Relationships
-    grocery_list: Mapped["GroceryList"] = relationship("GroceryList", back_populates="items")
-    pantry_item: Mapped["PantryItem"] = relationship("PantryItem")
+    list: Mapped["GroceryList"] = relationship("GroceryList", back_populates="items")
 
 
 from sqlalchemy.dialects.postgresql import JSONB

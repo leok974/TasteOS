@@ -43,11 +43,11 @@ export function useGenerateGrocery() {
         mutationFn: (params: { recipeIds?: string[]; planId?: string; includeEntryIds?: string[] }) => generateGroceryList(params),
         onSuccess: (data) => {
             console.log("Grocery list generated successfully:", data.id);
-            // We set the data directly to preserve the ephemeral 'meta' field which is not persisted by backend
+            // We set the data directly to preserve the ephemeral 'meta' field
             queryClient.setQueryData([...groceryKeys.current(), { workspaceId }], data);
             
-            // Optionally invalidate other grocery lists (history) if we had them
-            // queryClient.invalidateQueries({ queryKey: groceryKeys.history() });
+            // Force invalidation to ensure we get a fresh state next time
+            queryClient.invalidateQueries({ queryKey: groceryKeys.current() });
         },
         onError: (err) => {
             console.error("Failed to generate grocery list", err);

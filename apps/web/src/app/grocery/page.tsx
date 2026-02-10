@@ -283,7 +283,7 @@ function GenerateListSection() {
                                 )}>
                                     {selectedIds.includes(recipe.id) && <Check className="w-3 h-3" />}
                                 </div>
-                                <span className="text-sm truncate font-medium">{recipe.title}</span>
+                                <span className="text-sm truncate font-medium">{recipe.title.replace(/^#\s*/, '')}</span>
                             </div>
                         ))}
                         {(!recipes || recipes.length === 0) && (

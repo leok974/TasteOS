@@ -1,6 +1,6 @@
 """Grocery List Agent."""
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from ..models import Workspace, Recipe, GroceryList, GroceryListItem, PantryItem
@@ -69,6 +69,10 @@ def generate_grocery_list(
     pantry_map = {p.name.lower(): p for p in pantry_items}
     
     # 3. Create List Record
+    # Delete existing lists first to ensure we don't pile up lists
+    db.query(GroceryList).filter(GroceryList.workspace_id == workspace.id).delete(synchronize_session=False)
+    db.commit() # Ensure previous lists are gone
+    
     source_ref = source_override or (f"recipes:{','.join(sorted(recipe_ids))}" if recipe_ids else "manual")
     
     grocery_list = GroceryList(

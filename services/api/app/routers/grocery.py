@@ -111,6 +111,35 @@ def generate_grocery_list_from_plan(
     # Sort by display name
     items_out.sort(key=lambda x: x.display)
 
+    # 5. Persist to Database (Fix for 404 on /grocery)
+    # Clear existing lists for this workspace to avoid confusion
+    db.query(models.GroceryList).filter(models.GroceryList.workspace_id == workspace.id).delete()
+    
+    # Create new container
+    new_list = models.GroceryList(
+        workspace_id=workspace.id,
+        source=f"plan:{week_start}",
+        created_at=datetime.now()
+    )
+    db.add(new_list)
+    db.flush()
+    
+    # Map V2 items to DB items
+    db_items = []
+    for item in items_out:
+        db_item = models.GroceryListItem(
+            grocery_list_id=new_list.id,
+            name=item.display,
+            qty=item.quantity,
+            unit=item.unit,
+            category="Uncategorized", 
+            status="need"
+        )
+        db_items.append(db_item)
+        
+    db.add_all(db_items)
+    db.commit()
+
     return schemas.GroceryV2Response(
         scope=schemas.GroveryV2Scope(
             start=request.start,
@@ -139,6 +168,7 @@ def generate_list(
     recipe_scaling = {} # recipe_id -> factor
     
     print(f"DEBUG: Generating Grocery List. PlanID={request.plan_id}, IncludeEntries={request.include_entry_ids}")
+    print(f"DEBUG: Recipe IDs passed explicitly: {len(request.recipe_ids)} count. First few: {request.recipe_ids[:3]}")
 
     if request.plan_id:
         # Get plan with explicit loading
@@ -261,9 +291,7 @@ def generate_list(
         recipe_scaling=recipe_scaling
     )
 
-    # Persist the list to DB
-    db.commit()
-    db.refresh(grocery_list)
+    # Agent handles commit/refresh
     
     # Build Meta
     # Extract hacked carryover prop
@@ -477,13 +505,13 @@ def clear_current_list(
     workspace: models.Workspace = Depends(get_workspace),
     db: Session = Depends(get_db)
 ):
-    """Delete the active grocery list for the workspace."""
-    grocery_list = db.query(models.GroceryList).filter(
-        models.GroceryList.workspace_id == workspace.id
-    ).order_by(models.GroceryList.created_at.desc()).first()
+    """Delete ALL grocery lists for the workspace to ensure a clean slate."""
+    print(f"DEBUG: DELETE /current called for workspace {workspace.id}", flush=True)
     
-    if grocery_list:
-        db.delete(grocery_list)
-        db.commit()
+    db.query(models.GroceryList).filter(
+        models.GroceryList.workspace_id == workspace.id
+    ).delete(synchronize_session=False)
+    
+    db.commit()
     
     return

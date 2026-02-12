@@ -39,10 +39,20 @@ def _aggregate_ingredient(agg, ing, recipe):
     
     curr = agg[key]
     
+    # Construct rough line representation since we don't store raw line in RecipeIngredient
+    parts = []
+    if ing.qty:
+        parts.append(f"{float(ing.qty):g}")
+    if ing.unit:
+        parts.append(ing.unit)
+    parts.append(ing.name)
+    line_str = " ".join(parts)
+
     # Append source
     source_entry = {
         "recipe_id": recipe.id,
         "recipe_title": recipe.title,
+        "line": line_str 
     }
     curr["sources"].append(source_entry)
     

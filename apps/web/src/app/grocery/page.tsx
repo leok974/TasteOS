@@ -41,6 +41,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export default function GroceryPage() {
     const router = useRouter();
@@ -295,6 +297,17 @@ function GroceryListDetail({ listId }: { listId: string }) {
     const [isRenaming, setIsRenaming] = useState(false);
     const [renameTitle, setRenameTitle] = useState("");
 
+    // View Mode
+    const [viewMode, setViewMode] = useState<'combined' | 'by-recipe'>('combined');
+    
+    useEffect(() => {
+        if (list) {
+            setRenameTitle(list.title);
+            if (list.kind === 'generated') setViewMode('by-recipe');
+            else setViewMode('combined');
+        }
+    }, [listId, list?.kind]); // Only when list ID/kind changes
+
     if (isLoading) return <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
     if (!list) return <div className="p-8 text-center text-red-500">List not found</div>;
 
@@ -323,51 +336,99 @@ function GroceryListDetail({ listId }: { listId: string }) {
     const pendingItems = list.items?.filter(i => !i.checked) || [];
     const checkedItems = list.items?.filter(i => i.checked) || [];
 
+    // Grouping for "By Recipe" view
+    const getRecipeGroups = () => {
+        const groups: Record<string, { title: string, items: any[] }> = {};
+        const unassigned: any[] = [];
+        
+        list.items?.forEach(item => {
+           if (item.checked) return; // Only show pending items in recipe cards for clarity? Or show all? Let's show pending only in main cards
+           
+           if (!item.sources || item.sources.length === 0) {
+               unassigned.push(item);
+               return;
+           }
+           item.sources.forEach((src: any) => {
+                if (!groups[src.recipe_id]) {
+                    groups[src.recipe_id] = { title: src.recipe_title, items: [] };
+                }
+                groups[src.recipe_id].items.push(item);
+           });
+        });
+
+        return { groups, unassigned };
+    };
+
+    const { groups: recipeGroups, unassigned: unassignedItems } = viewMode === 'by-recipe' ? getRecipeGroups() : { groups: {}, unassigned: [] };
+    const sortedGroupKeys = Object.keys(recipeGroups).sort((a,b) => recipeGroups[a].title.localeCompare(recipeGroups[b].title));
+
     return (
         <div className="flex flex-col h-full overflow-hidden">
              {/* Header */}
-             <div className="p-4 border-b flex items-start justify-between bg-card shrink-0">
-                 <div className="space-y-1">
-                     {isRenaming ? (
-                         <div className="flex gap-2">
-                             <Input 
-                                value={renameTitle} 
-                                onChange={e => setRenameTitle(e.target.value)} 
-                                className="h-8 w-64"
-                                autoFocus
-                             />
-                             <Button size="sm" onClick={() => {
-                                 updateList({ id: listId, data: { title: renameTitle } });
-                                 setIsRenaming(false);
-                             }}>Save</Button>
-                         </div>
-                     ) : (
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold">{list.title}</h1>
-                            {list.kind === 'generated' && <Badge variant="secondary" className="text-xs">Generated</Badge>}
-                        </div>
-                     )}
-                     <p className="text-xs text-muted-foreground">
-                        {list.items?.length || 0} items • Created {format(new Date(list.created_at), "PP")}
-                     </p>
+             <div className="p-4 border-b space-y-4 bg-card shrink-0">
+                 <div className="flex items-start justify-between">
+                     <div className="space-y-1">
+                         {isRenaming ? (
+                             <div className="flex gap-2">
+                                 <Input 
+                                    value={renameTitle} 
+                                    onChange={e => setRenameTitle(e.target.value)} 
+                                    className="h-8 w-64"
+                                    autoFocus
+                                 />
+                                 <Button size="sm" onClick={() => {
+                                     updateList({ id: listId, data: { title: renameTitle } });
+                                     setIsRenaming(false);
+                                 }}>Save</Button>
+                             </div>
+                         ) : (
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-2xl font-bold">{list.title}</h1>
+                                {list.kind === 'generated' && <Badge variant="secondary" className="text-xs">Generated</Badge>}
+                            </div>
+                         )}
+                         <p className="text-xs text-muted-foreground">
+                            {list.items?.length || 0} items • Created {format(new Date(list.created_at), "PP")}
+                         </p>
+                     </div>
+                     
+                     <DropdownMenu>
+                         <DropdownMenuTrigger asChild>
+                             <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
+                         </DropdownMenuTrigger>
+                         <DropdownMenuContent align="end">
+                             <DropdownMenuItem onClick={() => {
+                                 setRenameTitle(list.title);
+                                 setIsRenaming(true);
+                             }}>
+                                 Rename List
+                             </DropdownMenuItem>
+                             <DropdownMenuItem className="text-red-500" onClick={handleDeleteList}>
+                                 <Trash2 className="w-4 h-4 mr-2" /> Delete List
+                             </DropdownMenuItem>
+                         </DropdownMenuContent>
+                     </DropdownMenu>
                  </div>
-                 
-                 <DropdownMenu>
-                     <DropdownMenuTrigger asChild>
-                         <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
-                     </DropdownMenuTrigger>
-                     <DropdownMenuContent align="end">
-                         <DropdownMenuItem onClick={() => {
-                             setRenameTitle(list.title);
-                             setIsRenaming(true);
-                         }}>
-                             Rename List
-                         </DropdownMenuItem>
-                         <DropdownMenuItem className="text-red-500" onClick={handleDeleteList}>
-                             <Trash2 className="w-4 h-4 mr-2" /> Delete List
-                         </DropdownMenuItem>
-                     </DropdownMenuContent>
-                 </DropdownMenu>
+
+                 {/* View Toggle (Only show for generated lists or if items have sources) */}
+                 {(list.kind === 'generated' || list.items?.some(i => i.sources?.length > 0)) && (
+                    <div className="flex items-center gap-2">
+                        <div className="flex bg-muted p-1 rounded-lg">
+                            <button 
+                                onClick={() => setViewMode('by-recipe')}
+                                className={cn("px-3 py-1 text-sm font-medium rounded-md transition-all", viewMode === 'by-recipe' ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            >
+                                By Recipe
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('combined')}
+                                className={cn("px-3 py-1 text-sm font-medium rounded-md transition-all", viewMode === 'combined' ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            >
+                                Combined
+                            </button>
+                        </div>
+                    </div>
+                 )}
              </div>
 
              {/* Add Item Bar */}
@@ -389,23 +450,78 @@ function GroceryListDetail({ listId }: { listId: string }) {
              {/* Items List */}
              <ScrollArea className="flex-1 p-4">
                  <div className="max-w-2xl mx-auto space-y-6 pb-20">
-                     <div className="space-y-1">
-                         {pendingItems.map(item => (
-                             <GroceryItemRow 
-                                key={item.id} 
-                                item={item} 
-                                listId={listId}
-                                onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
-                                onDelete={() => deleteItem({ listId, itemId: item.id })}
-                             />
-                         ))}
-                         {pendingItems.length === 0 && checkedItems.length === 0 && (
-                             <div className="text-center py-10 text-muted-foreground">List is empty</div>
-                         )}
-                         {pendingItems.length === 0 && checkedItems.length > 0 && (
-                             <div className="text-center py-10 text-green-600 font-medium">All items checked! 🎉</div>
-                         )}
-                     </div>
+                     
+                     {/* Combined View */}
+                     {viewMode === 'combined' && (
+                         <div className="space-y-1">
+                             {pendingItems.map(item => (
+                                 <GroceryItemRow 
+                                    key={item.id} 
+                                    item={item} 
+                                    listId={listId}
+                                    onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
+                                    onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                    showSource={true}
+                                 />
+                             ))}
+                             {pendingItems.length === 0 && checkedItems.length === 0 && (
+                                 <div className="text-center py-10 text-muted-foreground">List is empty</div>
+                             )}
+                         </div>
+                     )}
+
+                     {/* By Recipe View */}
+                     {viewMode === 'by-recipe' && (
+                         <div className="space-y-6">
+                             {sortedGroupKeys.map(recipeId => (
+                                 <Card key={recipeId}>
+                                     <CardHeader className="py-3 px-4 bg-muted/30">
+                                         <CardTitle className="text-base font-medium flex items-center justify-between">
+                                             {recipeGroups[recipeId].title}
+                                             <span className="text-xs font-normal text-muted-foreground">{recipeGroups[recipeId].items.length} items</span>
+                                         </CardTitle>
+                                     </CardHeader>
+                                     <CardContent className="p-2 space-y-1">
+                                         {recipeGroups[recipeId].items.map(item => (
+                                             <GroceryItemRow 
+                                                key={`${recipeId}-${item.id}`} // Unique key because item might appear in multiple groups
+                                                item={item} 
+                                                listId={listId}
+                                                onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
+                                                onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                                showSource={false} // Don't show source pill inside recipe card
+                                             />
+                                         ))}
+                                     </CardContent>
+                                 </Card>
+                             ))}
+
+                             {unassignedItems.length > 0 && (
+                                 <Card>
+                                     <CardHeader className="py-3 px-4 bg-muted/30">
+                                        <CardTitle className="text-base font-medium">Other Items</CardTitle>
+                                     </CardHeader>
+                                     <CardContent className="p-2 space-y-1">
+                                         {unassignedItems.map(item => (
+                                             <GroceryItemRow 
+                                                key={item.id}
+                                                item={item}
+                                                listId={listId}
+                                                onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
+                                                onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                                showSource={false}
+                                             />
+                                         ))}
+                                     </CardContent>
+                                 </Card>
+                             )}
+
+                             {/* If all items are checked */}
+                             {sortedGroupKeys.length === 0 && unassignedItems.length === 0 && checkedItems.length === 0 && (
+                                 <div className="text-center py-10 text-muted-foreground">List is empty</div>
+                             )}
+                          </div>
+                     )}
 
                      {checkedItems.length > 0 && (
                          <>
@@ -419,6 +535,7 @@ function GroceryListDetail({ listId }: { listId: string }) {
                                         listId={listId} 
                                         onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: false } })}
                                         onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                        showSource={viewMode === 'combined'}
                                      />
                                  ))}
                              </div>
@@ -430,23 +547,51 @@ function GroceryListDetail({ listId }: { listId: string }) {
     );
 }
 
-function GroceryItemRow({ item, listId, onCheck, onDelete }: { item: any, listId: string, onCheck: () => void, onDelete: () => void }) {
+function GroceryItemRow({ item, listId, onCheck, onDelete, showSource=true }: { item: any, listId: string, onCheck: () => void, onDelete: () => void, showSource?: boolean }) {
     // Determine info text
     const infoParts = [];
     if (item.quantity) infoParts.push(`${item.quantity} ${item.unit || ''}`);
-    if (item.sources && item.sources.length > 0) {
-        // Just show count or first recipe
-        if (item.sources.length === 1) infoParts.push(item.sources[0].recipe_title);
-        else infoParts.push(`${item.sources.length} recipes`);
-    }
-    const info = infoParts.join(" • ");
+    const qtyInfo = infoParts.join(" ");
 
     return (
         <div className="group flex items-center gap-3 p-2 rounded hover:bg-muted/50 transition-colors">
             <Checkbox checked={item.checked} onCheckedChange={onCheck} className="rounded-full w-5 h-5 border-2" />
-            <div className={cn("flex-1", item.checked && "line-through text-muted-foreground")}>
-                <div className="font-medium leading-none">{item.display}</div>
-                {info && <div className="text-xs text-muted-foreground mt-1">{info}</div>}
+            <div className={cn("flex-1", item.checked && "line-through text-muted-foreground", "flex items-start justify-between gap-2")}>
+                <div>
+                     <div className="font-medium leading-normal">{item.display}</div>
+                     {qtyInfo && <div className="text-xs text-muted-foreground">{qtyInfo}</div>}
+                </div>
+                
+                {/* Source Pill */}
+                {showSource && item.sources && item.sources.length > 0 && (
+                    <div className="shrink-0">
+                         {item.sources.length === 1 ? (
+                             <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground px-2 py-0 h-5">
+                                 {item.sources[0].recipe_title}
+                             </Badge>
+                         ) : (
+                             <Popover>
+                                 <PopoverTrigger asChild>
+                                     <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 cursor-pointer px-2 py-0 h-5">
+                                         {item.sources.length} recipes
+                                     </Badge>
+                                 </PopoverTrigger>
+                                 <PopoverContent className="w-64 p-2" align="end">
+                                     <div className="text-xs font-medium mb-2 px-1">Used in:</div>
+                                     <div className="space-y-1">
+                                         {item.sources.map((s: any, idx: number) => (
+                                             <div key={idx} className="text-xs p-1.5 rounded bg-muted/50 flex flex-col">
+                                                 <span className="font-medium">{s.recipe_title}</span>
+                                                 {/* Use 'line' from backend if available, or fallback */}
+                                                 <span className="text-muted-foreground text-[10px] font-mono">{s.line || item.display}</span>
+                                             </div>
+                                         ))}
+                                     </div>
+                                 </PopoverContent>
+                             </Popover>
+                         )}
+                    </div>
+                )}
             </div>
             <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-red-500" onClick={onDelete}>
                 <Trash2 className="w-4 h-4" />

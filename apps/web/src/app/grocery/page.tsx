@@ -348,7 +348,14 @@ function GroceryListDetail({ listId }: { listId: string }) {
                unassigned.push(item);
                return;
            }
+           
+           // Deduplicate sources by recipe_id to prevent same item appearing multiple times in one group
+           const uniqueRecipeIds = new Set();
+           
            item.sources.forEach((src: any) => {
+                if (uniqueRecipeIds.has(src.recipe_id)) return;
+                uniqueRecipeIds.add(src.recipe_id);
+                
                 if (!groups[src.recipe_id]) {
                     groups[src.recipe_id] = { title: src.recipe_title, items: [] };
                 }

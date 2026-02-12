@@ -21,23 +21,25 @@ def normalize_ingredient(name: str, qty: float | None, unit: str | None):
     # 1. Basic cleaning
     clean_name = name.lower()
     
-    # Remove parentheticals (e.g. "onions (chopped)")
-    clean_name = re.sub(r'\([^)]*\)', '', clean_name)
+    # Remove parentheticals for KEY generation only (e.g. "onions (chopped)")
+    clean_name_key = re.sub(r'\([^)]*\)', '', clean_name)
     
     # Remove adjectives
-    words = clean_name.split()
+    words = clean_name_key.split()
     filtered_words = [w for w in words if w not in ADJECTIVES]
-    clean_name = " ".join(filtered_words)
+    clean_name_key = " ".join(filtered_words)
     
     # Remove punctuation
-    clean_name = re.sub(r'[^\w\s]', '', clean_name).strip()
+    clean_name_key = re.sub(r'[^\w\s]', '', clean_name_key).strip()
     
     # Naive singularization (very basic)
-    if clean_name.endswith("s") and not clean_name.endswith("ss"):
-        clean_name = clean_name[:-1]
+    if clean_name_key.endswith("s") and not clean_name_key.endswith("ss"):
+        clean_name_key = clean_name_key[:-1]
         
-    key = clean_name
-    display = clean_name.capitalize()
+    key = clean_name_key
+    
+    # Use original name for display to preserve nuances
+    display = name.capitalize() 
     
     # Unit normalization (basic mapping)
     norm_unit = unit.lower() if unit else None

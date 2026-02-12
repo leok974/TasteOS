@@ -42,6 +42,7 @@ def _aggregate_ingredient(agg, ing, recipe):
     # Construct rough line representation since we don't store raw line in RecipeIngredient
     parts = []
     if ing.qty:
+        # Use g formatting to avoid 1.0 being displayed as 1.0 but keep decimals for non-integers
         parts.append(f"{float(ing.qty):g}")
     if ing.unit:
         parts.append(ing.unit)
@@ -54,7 +55,16 @@ def _aggregate_ingredient(agg, ing, recipe):
         "recipe_title": recipe.title,
         "line": line_str 
     }
-    curr["sources"].append(source_entry)
+    
+    # Check if duplicate source before adding
+    is_duplicate_source = False
+    for s in curr["sources"]:
+        if s["recipe_id"] == recipe.id:
+            is_duplicate_source = True
+            break
+    
+    if not is_duplicate_source:
+        curr["sources"].append(source_entry)
     
     # Sum logic
     # Only sum if units match (simple MVP)

@@ -208,8 +208,19 @@ function GrocerySidebar({ selectedId, onSelect, ignoreId }: { selectedId: string
 
     const handleGenerateFromRecipes = () => {
          if (selectedRecipeIds.length === 0) return;
+         
+         // Generate a nicer title
+         let title = `Recipe List (${selectedRecipeIds.length})`;
+         if (selectedRecipeIds.length === 1) {
+             const r = recipesData?.find(r => r.id === selectedRecipeIds[0]);
+             if (r) title = r.title;
+         } else if (selectedRecipeIds.length <= 3) {
+             const titles = selectedRecipeIds.map(id => recipesData?.find(r => r.id === id)?.title).filter(Boolean);
+             if (titles.length > 0) title = titles.join(", ");
+         }
+
          generateList({
-             title: `Recipe List (${selectedRecipeIds.length})`,
+             title,
              recipe_ids: selectedRecipeIds
          }, {
              onSuccess: (list) => {
@@ -557,16 +568,22 @@ function GroceryListDetail({ listId, onListDeleted }: { listId: string, onListDe
                                          </CardTitle>
                                      </CardHeader>
                                      <CardContent className="p-2 space-y-1">
-                                         {recipeGroups[recipeId].items.map(item => (
-                                             <GroceryItemRow 
-                                                key={`${recipeId}-${item.id}`} // Unique key because item might appear in multiple groups
-                                                item={item} 
-                                                listId={listId}
-                                                onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
-                                                onDelete={() => deleteItem({ listId, itemId: item.id })}
-                                                showSource={false} // Don't show source pill inside recipe card
-                                             />
-                                         ))}
+                                         {recipeGroups[recipeId].items.map(item => {
+                                             // Find the source for this recipe to display context-specific quantity line
+                                             const source = item.sources?.find((s: any) => s.recipe_id === recipeId);
+                                             const displayOverride = source?.line || item.display;
+                                             
+                                             return (
+                                                 <GroceryItemRow 
+                                                    key={`${recipeId}-${item.id}`} 
+                                                    item={{ ...item, display: displayOverride }} 
+                                                    listId={listId}
+                                                    onCheck={() => updateItem({ listId, itemId: item.id, data: { checked: true } })}
+                                                    onDelete={() => deleteItem({ listId, itemId: item.id })}
+                                                    showSource={false} 
+                                                 />
+                                             );
+                                         })}
                                      </CardContent>
                                  </Card>
                              ))}

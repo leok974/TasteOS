@@ -166,7 +166,7 @@ def generate_plan(
     return enrich_plan_response(plan, db)
 
 
-@router.get("/plan/current", response_model=MealPlanOut)
+@router.get("/plan/current", response_model=Optional[MealPlanOut])
 def get_current_plan(
     week_start: Optional[date] = Query(None),
     db: Session = Depends(get_db),
@@ -180,7 +180,7 @@ def get_current_plan(
     else:
         monday = week_start
 
-    print(f"DEBUG: Get current plan for workspace {workspace.id}. Target Week={monday}")
+    # print(f"DEBUG: Get current plan for workspace {workspace.id}. Target Week={monday}")
     
     plan = db.query(MealPlan).filter(
         MealPlan.workspace_id == workspace.id,
@@ -188,9 +188,8 @@ def get_current_plan(
     ).order_by(MealPlan.id.desc()).first()
     
     if not plan:
-        # Return empty structure or 404? 
-        # Let's return 404 so UI knows to ask to generate
-        raise HTTPException(status_code=404, detail="No plan found for this week")
+        # Return none to indicate no plan (avoiding 404 errors in console)
+        return None
         
     return enrich_plan_response(plan, db)
 

@@ -43,19 +43,23 @@ export function useCurrentPlan() {
     const monday = startOfWeek(today, { weekStartsOn: 1 });
     const weekStartStr = format(monday, 'yyyy-MM-dd');
 
-    const { data, error, isLoading } = useSWR<MealPlan>(
+    const { data: planData, error, isLoading } = useSWR<MealPlan | null>(
         workspaceId ? ['/plan/current', workspaceId, weekStartStr] : null,
-        ([url, , date]) => apiGet<MealPlan>(`${url}?week_start=${date}`),
+        ([url, , date]) => apiGet<MealPlan | null>(`${url}?week_start=${date}`),
         {
             shouldRetryOnError: false,
         }
     );
 
+    const plan = planData || null;
+    const isEmpty = (plan === null) || (!plan && !isLoading && !!error);
+
     return {
-        plan: data,
+        plan,
         isLoading,
         isError: error,
-        isEmpty: !data && !isLoading && error, // 404 treated as empty
+        isEmpty, // Handle both 200 null and legacy 404
+        weekStart: weekStartStr
     };
 }
 

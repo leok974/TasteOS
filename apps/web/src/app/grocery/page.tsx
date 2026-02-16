@@ -33,6 +33,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -43,6 +44,16 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function GroceryPage() {
     const router = useRouter();
@@ -52,20 +63,38 @@ export default function GroceryPage() {
     // Manage local selection state, sync with URL in effect
     const [selectedListId, setSelectedListId] = useState<string | null>(listIdParam);
     const [isMobileListOpen, setMobileListOpen] = useState(false);
+    const [lastDeletedId, setLastDeletedId] = useState<string | null>(null);
 
     useEffect(() => {
         if (selectedListId && selectedListId !== listIdParam) {
             router.replace(`/grocery?list=${selectedListId}`);
         } else if (!selectedListId && listIdParam) {
-            setSelectedListId(listIdParam);
+            // Prevent resurrection of just-deleted list if URL update is lagging
+            if (listIdParam !== lastDeletedId) {
+                setSelectedListId(listIdParam);
+            }
+        } else if (!selectedListId && !listIdParam) {
+            // No list selected in URL or state, keep it that way
+        } else if (selectedListId && !listIdParam) {
+            // State has ID but URL doesn't (could happen if URL cleared externally)
+            // Push it back to URL or clear state? Let's sync state to URL to support back button
+             // Wait, if URL is cleared, we should clear state?
+             // Or if we are navigating...
+             // If we just deleted it, lastDeletedId is set.
+             if (selectedListId === lastDeletedId) {
+                 setSelectedListId(null);
+             } else {
+                 // Push state to URL
+                 router.replace(`/grocery?list=${selectedListId}`);
+             }
         }
-    }, [selectedListId, listIdParam, router]);
+    }, [selectedListId, listIdParam, router, lastDeletedId]);
 
     return (
         <div className="flex h-[calc(100vh-4rem)] bg-background">
             {/* Sidebar (Desktop) */}
             <div className="hidden md:flex w-80 flex-col border-r bg-muted/10">
-                <GrocerySidebar selectedId={selectedListId} onSelect={setSelectedListId} />
+                <GrocerySidebar selectedId={selectedListId} onSelect={setSelectedListId} ignoreId={lastDeletedId} />
             </div>
 
             {/* Main Content */}
@@ -81,33 +110,47 @@ export default function GroceryPage() {
                  {/* Mobile Sidebar Dialog */}
                  <Dialog open={isMobileListOpen} onOpenChange={setMobileListOpen}>
                     <DialogContent className="h-[80vh] p-0 gap-0 overflow-hidden flex flex-col">
+                         <DialogHeader className="sr-only">
+                             <DialogTitle>Grocery Lists</DialogTitle>
+                             <DialogDescription>Select a grocery list to view details.</DialogDescription>
+                         </DialogHeader>
                          <GrocerySidebar 
                             selectedId={selectedListId} 
-                            onSelect={(id) => { setSelectedListId(id); setMobileListOpen(false); }} 
+                            onSelect={(id) => { setSelectedListId(id); setMobileListOpen(false); }}
+                            ignoreId={lastDeletedId}
                          />
                     </DialogContent>
                  </Dialog>
 
                  {selectedListId ? (
-                     <GroceryListDetail listId={selectedListId} />
+                     <GroceryListDetail 
+                        listId={selectedListId} 
+                        onListDeleted={() => {
+                            setLastDeletedId(selectedListId);
+                            setSelectedListId(null);
+                        }}
+                     />
                  ) : (
-                     <EmptyState onSelectFirst={setSelectedListId} />
+                     <EmptyState onSelectFirst={setSelectedListId} ignoreId={lastDeletedId} />
                  )}
             </div>
         </div>
     );
 }
 
-function EmptyState({ onSelectFirst }: { onSelectFirst: (id: string) => void }) {
+function EmptyState({ onSelectFirst, ignoreId }: { onSelectFirst: (id: string) => void, ignoreId: string | null }) {
     const { data } = useGroceryLists();
     
+    // Filter out the ignored ID from the data we act on
+    const availableLists = data?.lists?.filter(l => l.id !== ignoreId) || [];
+    
     useEffect(() => {
-        if (data?.lists && data.lists.length > 0) {
-            onSelectFirst(data.lists[0].id);
+        if (availableLists.length > 0) {
+            onSelectFirst(availableLists[0].id);
         }
-    }, [data, onSelectFirst]);
+    }, [availableLists, onSelectFirst]); // Don't depend on raw `data`
 
-    if (data?.lists && data.lists.length > 0) return (
+    if (availableLists.length > 0) return (
          <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-muted-foreground mr-2" /> Redirecting...</div>
     );
 
@@ -120,11 +163,15 @@ function EmptyState({ onSelectFirst }: { onSelectFirst: (id: string) => void }) 
     );
 }
 
-function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, onSelect: (id: string) => void }) {
+function GrocerySidebar({ selectedId, onSelect, ignoreId }: { selectedId: string | null, onSelect: (id: string) => void, ignoreId?: string | null }) {
     const { data, isLoading } = useGroceryLists();
+    
+    // Optimistic filtering
+    const lists = data?.lists?.filter(l => l.id !== ignoreId) || [];
+    
     const { mutate: createList, isPending: isCreating } = useCreateGroceryList();
     const { mutate: generateList, isPending: isGenerating } = useGenerateGroceryList();
-    const { plan } = useCurrentPlan();
+    const { plan, weekStart, isLoading: isPlanLoading } = useCurrentPlan();
     const { data: recipesData } = useRecipes();
     
     // New List Dialog State
@@ -148,11 +195,12 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
     };
 
     const handleGenerateFromPlan = () => {
-         if (!plan) return;
-         const title = `Weekly Plan (${format(new Date(plan.week_start), "MMM d")})`;
+         // Fallback to computed weekStart if plan object is missing but we want to try anyway (though backend needs plan)
+         const date = plan?.week_start || weekStart;
+         const title = `Weekly Plan (${format(new Date(date), "MMM d")})`;
          generateList({
              title,
-             start: plan.week_start
+             start: date
          }, {
              onSuccess: (list) => onSelect(list.id)
          });
@@ -180,16 +228,19 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
                  <Button className="w-full justify-start" onClick={() => setIsNewOpen(true)}>
                     <Plus className="w-4 h-4 mr-2" /> New Manual List
                  </Button>
-                 {plan && (
+                 
+                 {/* Show "From Plan" if plan exists or weekStart is known. 
+                     If plan is missing, backend will return empty list, which is fine. */}
+                 {(plan || weekStart || isPlanLoading) && (
                      <Button 
                         variant="secondary" 
                         className="w-full justify-start" 
                         onClick={handleGenerateFromPlan}
-                        disabled={isGenerating}
+                        disabled={isGenerating || isPlanLoading}
                     >
                         <Calendar className="w-4 h-4 mr-2" /> 
-                        {isGenerating ? "Generating..." : "From Weekly Plan"}
-                     </Button>
+                        <span suppressHydrationWarning>{isGenerating ? "Generating..." : `From Weekly Plan (${format(new Date(plan?.week_start || weekStart || new Date()), "MMM d")})`}</span>
+                    </Button>
                  )}
                  <Button 
                     variant="outline" 
@@ -204,7 +255,7 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
             <ScrollArea className="flex-1">
                 <div className="p-2 space-y-1">
                     {isLoading && <div className="p-4 text-sm text-center text-muted-foreground">Loading lists...</div>}
-                    {data?.lists?.map(list => (
+                    {lists.map(list => (
                         <button
                             key={list.id}
                             onClick={() => onSelect(list.id)}
@@ -227,7 +278,10 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
 
             <Dialog open={isNewOpen} onOpenChange={setIsNewOpen}>
                 <DialogContent>
-                    <DialogHeader><DialogTitle>Create New List</DialogTitle></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle>Create New List</DialogTitle>
+                        <DialogDescription>Enter a name for your new grocery list.</DialogDescription>
+                    </DialogHeader>
                     <Input 
                         placeholder="List Title (e.g. Costco Run)" 
                         value={newTitle} 
@@ -244,7 +298,10 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
 
             <Dialog open={isRecipeOpen} onOpenChange={setIsRecipeOpen}>
                 <DialogContent className="max-h-[80vh] flex flex-col">
-                    <DialogHeader><DialogTitle>Select Recipes</DialogTitle></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle>Select Recipes</DialogTitle>
+                        <DialogDescription>Choose recipes to add to your grocery list.</DialogDescription>
+                    </DialogHeader>
                     <div className="relative">
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input placeholder="Search recipes..." className="pl-8" value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)} />
@@ -284,7 +341,7 @@ function GrocerySidebar({ selectedId, onSelect }: { selectedId: string | null, o
     );
 }
 
-function GroceryListDetail({ listId }: { listId: string }) {
+function GroceryListDetail({ listId, onListDeleted }: { listId: string, onListDeleted?: () => void }) {
     const { data: list, isLoading } = useGroceryList(listId);
     const { mutate: addItem } = useAddGroceryItem();
     const { mutate: updateItem } = useUpdateGroceryItem();
@@ -296,6 +353,7 @@ function GroceryListDetail({ listId }: { listId: string }) {
     const [newItemTerm, setNewItemTerm] = useState("");
     const [isRenaming, setIsRenaming] = useState(false);
     const [renameTitle, setRenameTitle] = useState("");
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     // View Mode
     const [viewMode, setViewMode] = useState<'combined' | 'by-recipe'>('combined');
@@ -318,18 +376,13 @@ function GroceryListDetail({ listId }: { listId: string }) {
     };
 
     const handleDeleteList = () => {
-        if (confirm("Are you sure you want to delete this list?")) {
-            deleteList(listId, {
-                onSuccess: () => {
-                    // Update URL to remove list param handled by parent?
-                    // No, parent sees invalidation and might not be able to clear selected ID automatically if list doesn't exist.
-                    // We must force deselect.
-                     // But we can't easily sync back to parent via prop.
-                    // Rely on parent re-validating or simply redirect.
-                    router.replace('/grocery');
-                }
-            });
-        }
+        deleteList(listId, {
+            onSuccess: () => {
+                // Clear selection state first to unmount and avoid 404s
+                if (onListDeleted) onListDeleted();
+                router.replace('/grocery');
+            }
+        });
     };
     
     // Group Items
@@ -410,11 +463,26 @@ function GroceryListDetail({ listId }: { listId: string }) {
                              }}>
                                  Rename List
                              </DropdownMenuItem>
-                             <DropdownMenuItem className="text-red-500" onClick={handleDeleteList}>
+                             <DropdownMenuItem className="text-red-500" onClick={() => setIsDeleteDialogOpen(true)}>
                                  <Trash2 className="w-4 h-4 mr-2" /> Delete List
                              </DropdownMenuItem>
                          </DropdownMenuContent>
                      </DropdownMenu>
+
+                     <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete your grocery list.
+                            </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteList} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                  </div>
 
                  {/* View Toggle (Only show for generated lists or if items have sources) */}
@@ -561,46 +629,51 @@ function GroceryItemRow({ item, listId, onCheck, onDelete, showSource=true }: { 
     const qtyInfo = infoParts.join(" ");
 
     return (
-        <div className="group flex items-center gap-3 p-2 rounded hover:bg-muted/50 transition-colors">
-            <Checkbox checked={item.checked} onCheckedChange={onCheck} className="rounded-full w-5 h-5 border-2" />
-            <div className={cn("flex-1", item.checked && "line-through text-muted-foreground", "flex items-start justify-between gap-2")}>
-                <div>
-                     <div className="font-medium leading-normal">{item.display}</div>
-                     {qtyInfo && <div className="text-xs text-muted-foreground">{qtyInfo}</div>}
-                </div>
-                
-                {/* Source Pill */}
-                {showSource && item.sources && item.sources.length > 0 && (
-                    <div className="shrink-0">
-                         {item.sources.length === 1 ? (
-                             <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground px-2 py-0 h-5">
-                                 {item.sources[0].recipe_title}
-                             </Badge>
-                         ) : (
-                             <Popover>
-                                 <PopoverTrigger asChild>
-                                     <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 cursor-pointer px-2 py-0 h-5">
-                                         {item.sources.length} recipes
-                                     </Badge>
-                                 </PopoverTrigger>
-                                 <PopoverContent className="w-64 p-2" align="end">
-                                     <div className="text-xs font-medium mb-2 px-1">Used in:</div>
-                                     <div className="space-y-1">
-                                         {item.sources.map((s: any, idx: number) => (
-                                             <div key={idx} className="text-xs p-1.5 rounded bg-muted/50 flex flex-col">
-                                                 <span className="font-medium">{s.recipe_title}</span>
-                                                 {/* Use 'line' from backend if available, or fallback */}
-                                                 <span className="text-muted-foreground text-[10px] font-mono">{s.line || item.display}</span>
-                                             </div>
-                                         ))}
-                                     </div>
-                                 </PopoverContent>
-                             </Popover>
-                         )}
+        <div className="group flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors min-w-0">
+            <Checkbox 
+                checked={item.checked} 
+                onCheckedChange={onCheck} 
+                className="rounded-full w-5 h-5 border-2 mt-1 shrink-0" 
+            />
+            <div className={cn("flex-1 min-w-0 grid gap-1", item.checked && "opacity-60")}>
+                <div className="flex items-start justify-between gap-2">
+                    <div className={cn("font-medium leading-normal whitespace-normal break-words min-w-0", item.checked && "line-through")}>
+                        {item.display}
                     </div>
-                )}
+                
+                    {/* Source Pill */}
+                    {showSource && item.sources && item.sources.length > 0 && (
+                        <div className="shrink-0 pt-0.5">
+                            {item.sources.length === 1 ? (
+                                <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground px-2 py-0 h-5 whitespace-nowrap">
+                                    {item.sources[0].recipe_title}
+                                </Badge>
+                            ) : (
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 cursor-pointer px-2 py-0 h-5 whitespace-nowrap">
+                                            {item.sources.length} recipes
+                                        </Badge>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 p-2" align="end">
+                                        <div className="text-xs font-medium mb-2 px-1">Used in:</div>
+                                        <div className="space-y-1">
+                                            {item.sources.map((s: any, idx: number) => (
+                                                <div key={idx} className="text-xs p-1.5 rounded bg-muted/50 flex flex-col">
+                                                    <span className="font-medium">{s.recipe_title}</span>
+                                                    <span className="text-muted-foreground text-[10px] font-mono break-all">{s.line || item.display}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
+                        </div>
+                    )}
+                </div>
+                {qtyInfo && <div className="text-xs text-muted-foreground">{qtyInfo}</div>}
             </div>
-            <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-red-500" onClick={onDelete}>
+            <Button variant="ghost" size="icon" className="shrinking-0 opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-red-500 -mt-1" onClick={onDelete}>
                 <Trash2 className="w-4 h-4" />
             </Button>
         </div>

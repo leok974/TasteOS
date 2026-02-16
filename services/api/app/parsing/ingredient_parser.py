@@ -13,13 +13,60 @@ ADJECTIVES = {
     "lean", "boneless", "skinless"
 }
 
+GARBAGE_TOKENS = {
+    "or", "and", "optional", "to taste", "if needed", "for serving", "plus more", "divided"
+}
+
+def sanitize_ingredient_text(text: str) -> str:
+    """Strip markdown and normalize whitespace."""
+    if not text:
+        return ""
+        
+    s = text
+    # Remove markdown bold/italic markers
+    s = s.replace("**", "").replace("__", "").replace("*", "")
+    
+    # Remove leading bullets
+    s = re.sub(r'^[\s\-\#]+', '', s)
+    
+    # Collapse whitespace
+    s = re.sub(r'\s+', ' ', s).strip()
+    
+    return s
+
+def is_garbage_line(text: str) -> bool:
+    """Check if the text is just a connector word or garbage."""
+    if not text:
+        return True
+        
+    t = text.lower().strip()
+    # Remove punctuation
+    t = re.sub(r'[^\w\s]', '', t)
+    
+    if not t:
+        return True
+
+    # Check exact match against tokens
+    if t in GARBAGE_TOKENS:
+        return True
+        
+    return False
+
 def normalize_ingredient(name: str, qty: float | None, unit: str | None):
     """
     Normalize ingredient for grocery list aggregation.
     Returns (key, display, qty, unit).
+    If the ingredient is detected as garbage/connector, key will be None.
     """
+    # 0. Sanitize display name first (handles "Or**" -> "Or")
+    clean_display = sanitize_ingredient_text(name)
+    
+    # 0.5 Check for garbage
+    if is_garbage_line(clean_display):
+        return None, None, None, None
+        
     # 1. Basic cleaning
-    clean_name = name.lower()
+    clean_name = clean_display.lower()
     
     # Remove parentheticals for KEY generation only (e.g. "onions (chopped)")
     clean_name_key = re.sub(r'\([^)]*\)', '', clean_name)
@@ -38,8 +85,8 @@ def normalize_ingredient(name: str, qty: float | None, unit: str | None):
         
     key = clean_name_key
     
-    # Use original name for display to preserve nuances
-    display = name.capitalize() 
+    # Use sanitized name for display to preserve nuances but no markdown
+    display = clean_display.capitalize() 
     
     # Unit normalization (basic mapping)
     norm_unit = unit.lower() if unit else None
@@ -57,11 +104,16 @@ def parse_ingredient_line(line: str):
     Best effort parser for raw strings. 
     Returns (qty, unit, name).
     """
+    # 0. Sanitize input line
+    clean_line = sanitize_ingredient_text(line)
+    if is_garbage_line(clean_line):
+        return None, None, ""
+
     # Very naive parser as requested
     # Look for leading number
-    match = re.match(r'^([\d\./]+)\s*(.*)', line.strip())
+    match = re.match(r'^([\d\./]+)\s*(.*)', clean_line)
     if not match:
-        return None, None, line.strip()
+        return None, None, clean_line
         
     qty_str = match.group(1)
     rest = match.group(2)
@@ -73,7 +125,7 @@ def parse_ingredient_line(line: str):
         else:
             qty = float(qty_str)
     except ValueError:
-        return None, None, line.strip()
+        return None, None, clean_line
         
     # Check for unit in first word of rest
     words = rest.split()

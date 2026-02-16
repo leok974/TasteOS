@@ -19,21 +19,67 @@ def get_list_or_404(db: Session, list_id: str, workspace_id: str) -> models.Groc
         raise HTTPException(status_code=404, detail="Grocery list not found")
     return lst
 
+class IngredientProxy:
+    """Helper to unify RecipeIngredient object and JSON dict access."""
+    def __init__(self, name, qty, unit):
+        self.name = name
+        self.qty = qty
+        self.unit = unit
+
+def _aggregate_recipe_ingredients(agg, recipe):
+    """Aggregate ingredients from recipe relation OR variant fallback."""
+    if recipe.ingredients:
+        # Relational path (preferred)
+        for ing in recipe.ingredients:
+            _aggregate_ingredient(agg, ing, recipe)
+    else:
+        # Fallback path: JSON variants
+        # Try active variant first, then first available
+        variant = recipe.active_variant
+        if not variant and recipe.variants:
+            # Sort by created_at desc? Or just take one.
+            variant = recipe.variants[0]
+            
+        if variant and variant.content_json and "ingredients" in variant.content_json:
+            raw_ings = variant.content_json.get("ingredients", [])
+            for raw in raw_ings:
+                # Expecting raw to be dict: {item, quantity, unit, ...}
+                if isinstance(raw, dict):
+                    # Map to proxy object
+                    # raw['item'] might be name
+                    name = raw.get("item") or raw.get("name") or "Unknown"
+                    qty = raw.get("quantity") or raw.get("qty")
+                    unit = raw.get("unit")
+                    
+                    proxy = IngredientProxy(name, qty, unit)
+                    _aggregate_ingredient(agg, proxy, recipe)
+
 def _aggregate_ingredient(agg, ing, recipe):
     """Helper to merge ingredient into aggregation map."""
     
-    # Note: ing.qty is Decimal or float? In DB it says Numeric. Float conversion is safe for aggreg.
-    qty_float = float(ing.qty) if ing.qty is not None else None
+    # Handle both ORM object and our Proxy object
+    name = ing.name
+    qty = ing.qty
+    unit = ing.unit
     
-    norm_key, norm_display, norm_qty, norm_unit = normalize_ingredient(ing.name, qty_float, ing.unit)
+    # Check if qty is None (some JSON formats use 0 or null)
+    # Convert generic numeric to float safely
+    qty_float = float(qty) if qty is not None else None
     
-    key = norm_key or ing.name.lower().strip()
+    norm_key, norm_display, norm_qty, norm_unit = normalize_ingredient(name, qty_float, unit)
+    
+    # Skip garbage items (markers like "Or", "Optional")
+    if norm_key is None:
+        # print(f"DEBUG: Skipping garbage ingredient: {name} -> detected as garbage")
+        return
+
+    key = norm_key or name.lower().strip()
     
     if key not in agg:
         agg[key] = {
-            "display": norm_display or ing.name,
+            "display": norm_display or name,
             "qty": 0.0,
-            "unit": norm_unit or ing.unit,
+            "unit": norm_unit or unit,
             "sources": []
         }
     
@@ -41,12 +87,12 @@ def _aggregate_ingredient(agg, ing, recipe):
     
     # Construct rough line representation since we don't store raw line in RecipeIngredient
     parts = []
-    if ing.qty:
+    if qty_float:
         # Use g formatting to avoid 1.0 being displayed as 1.0 but keep decimals for non-integers
-        parts.append(f"{float(ing.qty):g}")
-    if ing.unit:
-        parts.append(ing.unit)
-    parts.append(ing.name)
+        parts.append(f"{qty_float:g}")
+    if unit:
+        parts.append(unit)
+    parts.append(name)
     line_str = " ".join(parts)
 
     # Append source
@@ -76,6 +122,34 @@ def _aggregate_ingredient(agg, ing, recipe):
             curr["qty"] = norm_qty
             curr["unit"] = norm_unit
 
+
+def _aggregate_recipe_ingredients(agg, recipe):
+    """Aggregate ingredients from recipe relation OR variant fallback."""
+    if recipe.ingredients:
+        # Relational path (preferred)
+        for ing in recipe.ingredients:
+            _aggregate_ingredient(agg, ing, recipe)
+    else:
+        # Fallback path: JSON variants
+        # Try active variant first, then first available
+        variant = recipe.active_variant
+        if not variant and recipe.variants:
+            # Sort by created_at desc? Or just take one.
+            variant = recipe.variants[0]
+            
+        if variant and variant.content_json and "ingredients" in variant.content_json:
+            raw_ings = variant.content_json.get("ingredients", [])
+            for raw in raw_ings:
+                # Expecting raw to be dict: {item, quantity, unit, ...}
+                if isinstance(raw, dict):
+                    # Map to proxy object
+                    # raw['item'] might be name
+                    name = raw.get("item") or raw.get("name") or "Unknown"
+                    qty = raw.get("quantity") or raw.get("qty")
+                    unit = raw.get("unit")
+                    
+                    proxy = IngredientProxy(name, qty, unit)
+                    _aggregate_ingredient(agg, proxy, recipe)
 
 # --- List CRUD ---
 
@@ -290,21 +364,33 @@ def generate_grocery_list_v3(
                 if request.meals and entry.meal_type not in request.meals: continue
                 
                 # Aggregate logic
-                for ing in entry.recipe.ingredients:
-                    _aggregate_ingredient(aggregated_items, ing, entry.recipe)
+                if entry.recipe.ingredients:
+                    for ing in entry.recipe.ingredients:
+                        _aggregate_ingredient(aggregated_items, ing, entry.recipe)
+                else:
+                    # Fallback to variant JSON if relation is empty
+                    # Try to find active variant, or default to first
+                    # Note: We need to load variants if not loaded. selectinload might have missed it if not requested above.
+                    # We only requested ingredients.
+                    # We might need to refetch or assume 'variants' is not loaded and skip?
+                    # But variants are usually small.
+                    # Actually, let's just create a helper for this "get ingredients" logic.
+                    _aggregate_recipe_ingredients(aggregated_items, entry.recipe)
 
     # B. From Recipes
     if request.recipe_ids:
         recipes = db.execute(
             select(models.Recipe)
             .where(models.Recipe.id.in_(request.recipe_ids), models.Recipe.workspace_id == workspace.id)
-            .options(selectinload(models.Recipe.ingredients))
+            .options(
+                selectinload(models.Recipe.ingredients),
+                selectinload(models.Recipe.variants) # Load variants too for fallback
+            )
         ).scalars().all()
         
         sources_meta["recipe_ids"] = [r.id for r in recipes]
         for recipe in recipes:
-             for ing in recipe.ingredients:
-                _aggregate_ingredient(aggregated_items, ing, recipe)
+             _aggregate_recipe_ingredients(aggregated_items, recipe)
 
     # Create List
     new_list = models.GroceryList(

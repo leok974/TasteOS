@@ -31,7 +31,12 @@ export function useGroceryList(listId: string) {
     return useQuery({
         queryKey: groceryKeys.detail(listId),
         queryFn: () => fetchGroceryList(listId),
-        enabled: !!listId
+        enabled: !!listId,
+        retry: (failureCount, error: any) => {
+            // Don't retry on 404s
+            if (error?.status === 404) return false;
+            return failureCount < 3;
+        }
     });
 }
 

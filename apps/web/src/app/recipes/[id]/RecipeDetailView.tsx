@@ -41,6 +41,8 @@ import { toStructuredStep } from "@/lib/stepFormat";
 import {
     useCookSessionStart,
 } from '@/features/cook/hooks';
+import { logMeal } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 // Duplicate helper for now
 interface CookStep {
@@ -97,6 +99,20 @@ function MacroBadge({ recipeId }: { recipeId: string }) {
 }
 
 function RecipeHero({ recipe }: { recipe: Recipe }) {
+    const { toast } = useToast();
+    const handleLogMeal = async () => {
+      try {
+        await logMeal({
+          recipe_id: recipe.id,
+          timestamp: new Date().toISOString(),
+          servings: 1.0, 
+        }, recipe.workspace_id);
+        toast({ title: "Meal logged!", description: "Added to your daily nutrition totals." });
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to log meal.", variant: "destructive" });
+      }
+    };
+
     const { mutate: generateImage, isPending: isGeneratingMsg, error: genError } = useGenerateImage();
     const { mutate: regenerateImage } = useRegenerateImage();
     const { data: imageStatus } = useImageStatus(recipe.id);
@@ -206,6 +222,14 @@ function RecipeHero({ recipe }: { recipe: Recipe }) {
                                {timeLabel}
                            </span>
                         )}
+                        <button
+                            onClick={handleLogMeal}
+                            className="bg-green-600/90 text-white px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-green-700/90 backdrop-blur-md transition-colors shadow-sm flex items-center gap-1.5 border border-white/20"
+                            title="Quick log 1 serving"
+                        >
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-300 animate-pulse" />
+                            Log Meal
+                        </button>
                         {recipe.cuisines?.map((c) => (
                             <span key={c} className="rounded-lg border border-white/20 bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
                                 {c}

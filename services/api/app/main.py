@@ -26,6 +26,7 @@ from .routers.units import router as units_router
 from .routers.prefs import router as prefs_router
 from .routers.units_density import router as density_router
 from .routers.images import router as images_router
+from .routers.meals import router as meals_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -65,6 +66,7 @@ app.include_router(cook_router, prefix="/api", tags=["cook"])
 app.include_router(units_router, prefix="/api/units", tags=["units"])
 app.include_router(prefs_router, prefix="/api", tags=["prefs"])
 app.include_router(images_router, prefix="/api", tags=["images"])
+app.include_router(meals_router, prefix="/api", tags=["meals"])
 
 @app.get("/debug_routes")
 def get_routes():

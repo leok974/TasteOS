@@ -796,3 +796,39 @@ export function cookSessionEventsUrl(sessionId: string): string {
 export async function undoAdjustment(sessionId: string, adjustmentId: string): Promise<CookSession> {
   return apiPost<CookSession>(`/cook/session/${sessionId}/adjust/undo`, { adjustment_id: adjustmentId }, { idempotent: true });
 }
+
+// --- Meal Logging ---
+
+export interface MealLog {
+    id: string;
+    recipe_id: string;
+    timestamp: string;
+    servings: number;
+    notes?: string;
+    macros_snapshot?: {
+        calories: number;
+        protein_g: number;
+        carbs_g: number;
+        fat_g: number;
+    };
+}
+
+export async function logMeal(payload: { recipe_id: string, timestamp: string, servings: number, notes?: string }, workspace_id?: string) {
+  const url = join(API_BASE, "/meals/log");
+  const headers = getHeaders();
+  if (workspace_id) {
+    headers.set("X-Workspace-Id", workspace_id);
+  }
+  
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to log meal: ${res.statusText} ${err}`);
+  }
+  return res.json() as Promise<MealLog>;
+}

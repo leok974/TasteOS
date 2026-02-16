@@ -124,6 +124,9 @@ class Recipe(Base):
     
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+    # Nutrition
+    macros: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, server_default=text("'{}'"))
+
     # Active image pointer (for deterministic display)
     active_image_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("recipe_images.id", ondelete="SET NULL", use_alter=True),
@@ -210,6 +213,32 @@ class RecipeStep(Base):
 
     # Relationships
     recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="steps")
+
+
+class MealLog(Base):
+    """Logs a user's meal intake based on a recipe."""
+    __tablename__ = "meal_logs"
+    __table_args__ = (
+        Index("ix_meal_logs_workspace_id", "workspace_id"),
+        Index("ix_meal_logs_timestamp", "timestamp"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=generate_uuid
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    recipe_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("recipes.id"), nullable=False
+    )
+    
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    servings: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Stores snapshot: {"calories": 500, "protein_g": 30, ...}
+    macros_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
 class RecipeImage(Base):

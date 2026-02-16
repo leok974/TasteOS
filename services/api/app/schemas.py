@@ -1067,3 +1067,33 @@ class GroceryGenerateRequestV3(BaseModel):
     days: Optional[List[date]] = None
     meals: Optional[List[str]] = None
     recipe_ids: Optional[List[str]] = None
+
+# --- Meal Logs ---
+
+class MealLogBase(BaseModel):
+    recipe_id: str
+    timestamp: datetime
+    servings: float = Field(gt=0, default=1.0)
+    notes: Optional[str] = None
+
+class MealLogCreate(MealLogBase):
+    pass
+
+class MealLogRead(MealLogBase):
+    id: str
+    workspace_id: str
+    macros_snapshot: dict[str, float]
+
+    class Config:
+        from_attributes = True
+
+class NutritionTotals(BaseModel):
+    calories: float = 0
+    protein_g: float = 0
+    carbs_g: float = 0
+    fat_g: float = 0
+
+class DailyNutritionSummary(BaseModel):
+    date: str
+    totals: NutritionTotals
+    logs: List[MealLogRead]
